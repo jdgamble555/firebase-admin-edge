@@ -1,0 +1,33 @@
+{
+  "name": "firebase-admin-edge",
+  "version": "1.0.0",
+  "description": "A demo package for Total TypeScript",
+  "keywords": [
+    "demo",
+    "typescript"
+  ],
+  "homepage": "https://github.com/jdgamble555/firebase-admin-edge",
+  "bugs": {
+    "url": "https://github.com/jdgamble555/firebase-admin-edge/issues"
+  },
+  "author": "Jonathan Gamble",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jdgamble555/firebase-admin-edge.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "license": "MIT",
+  "devDependencies": {
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "build": "tsc",
+    "ci": "npm run build",
+    "format": "prettier --write ."
+  }
+}

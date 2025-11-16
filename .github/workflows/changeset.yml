@@ -39,7 +39,6 @@ jobs:
           version: npm run changeset:version
 
           # 2️⃣ When Version PR IS merged → create & push tag (DO NOT PUBLISH HERE)
-          publish: >
-            bash -c 'VERSION=$(node -p "require(\"./package.json\").version"); TAG="v$VERSION"; echo "Creating tag: $TAG"; git tag "$TAG"; git push origin "$TAG"'
+          publish: npm run changeset:tag
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

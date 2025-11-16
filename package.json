@@ -41,6 +41,7 @@
         "local-release": "npm run format && changeset version && changeset publish",
         "prepublishOnly": "npm run ci",
         "changeset": "changeset",
-        "changeset:version": "changeset version"
+        "changeset:version": "changeset version",
+        "changeset:tag": "changeset tag"
     }
 }

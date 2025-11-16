@@ -23,6 +23,7 @@ npm install firebase-admin-edge
 
 ```typescript
 import { createFirebaseEdgeServer } from 'firebase-admin-edge';
+import { getCookie, setCookie } from 'your-framework-library';
 
 const server = createFirebaseEdgeServer({
     serviceAccount: {
@@ -43,13 +44,17 @@ const server = createFirebaseEdgeServer({
         },
     },
     cookies: {
-        getSession: (name) => getCookie(name), // Your cookie getter
-        saveSession: (name, value, options) => setCookie(name, value, options), // Your cookie setter
+        getSession: (name) => {
+            return getCookie(name);
+        },
+        saveSession: (name, value, options) => {
+            return setCookie(name, value, options);
+        }
     },
 });
 ```
 
-Returns these functions:
+### Returns these functions:
 
 ```
 auth,

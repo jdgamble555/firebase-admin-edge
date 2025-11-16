@@ -28,13 +28,18 @@ jobs:
             - name: Run CI
               run: npm run ci
 
-            - name: Create Release Pull Request or Publish
-              id: changesets
-              uses: changesets/action@v1
-              with:
-                  commit: 'chore: version packages'
-                  title: 'chore: version packages'
-                  publish: npm run release:publish
+            - name: Version packages
+              run: npx changeset version
+
+            - name: Commit version changes
+              run: |
+                  git config --local user.email "action@github.com"
+                  git config --local user.name "GitHub Action"
+                  git add .
+                  git diff --staged --quiet || git commit -m "chore: version packages"
+                  git push
+
+            - name: Publish to npm
+              run: npx changeset publish
               env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   NPM_CONFIG_PROVENANCE: true

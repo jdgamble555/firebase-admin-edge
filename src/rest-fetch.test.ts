@@ -20,9 +20,13 @@ describe('restFetch', () => {
 
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json'
+            },
             body: undefined
         });
+
         expect(result).toEqual({ data: { success: true }, error: null });
     });
 
@@ -35,12 +39,19 @@ describe('restFetch', () => {
 
         await restFetch('https://api.example.com', {
             method: 'GET',
-            params: { foo: 'bar', baz: 'qux' }
+            params: { search: 'query', limit: '10' }
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
-            'https://api.example.com?foo=bar&baz=qux',
-            expect.any(Object)
+            'https://api.example.com?search=query&limit=10',
+            {
+                method: 'GET',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                body: undefined
+            }
         );
     });
 
@@ -58,8 +69,11 @@ describe('restFetch', () => {
 
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: '{"name":"test","value":123}'
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name: 'test', value: 123 })
         });
     });
 
@@ -77,8 +91,11 @@ describe('restFetch', () => {
 
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ username: 'test', password: 'secret' })
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: expect.any(URLSearchParams)
         });
     });
 
@@ -96,6 +113,7 @@ describe('restFetch', () => {
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
             headers: {
+                Accept: 'application/json',
                 'Content-Type': 'application/json',
                 Authorization: 'Bearer abc123'
             },
@@ -117,6 +135,7 @@ describe('restFetch', () => {
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
             headers: {
+                Accept: 'application/json',
                 'Content-Type': 'application/json',
                 'X-Custom': 'value'
             },

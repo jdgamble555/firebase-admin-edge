@@ -40,5 +40,9 @@
         "clean": "rimraf dist",
         "local-release": "changeset version && changeset publish",
         "prepublishOnly": "npm run ci"
+    },
+    "publishConfig": {
+        "provenance": true,
+        "access": "public"
     }
 }

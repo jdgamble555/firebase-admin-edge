@@ -21,7 +21,6 @@ jobs:
               with:
                   node-version: 20
                   registry-url: 'https://registry.npmjs.org'
-                  always-auth: true
 
             - name: Install dependencies
               run: npm install
@@ -32,7 +31,7 @@ jobs:
             - name: Create Release Pull Request or Publish
               uses: changesets/action@v1
               with:
-                  publish: npm publish --provenance --access public
+                  publish: changeset publish
                   commit: 'chore: version packages'
                   title: 'chore: version packages'
               env:

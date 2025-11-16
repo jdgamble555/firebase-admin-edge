@@ -1,5 +1,14 @@
 # firebase-admin-edge
 
+## 1.0.4
+
+### Patch Changes
+
+- 7aadbf0: changeset version test
+- 9707981: version update
+- d571342: test
+- 0c978ee: test
+
 ## 1.0.3
 
 ### Patch Changes

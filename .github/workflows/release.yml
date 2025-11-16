@@ -31,8 +31,9 @@ jobs:
             - name: Create Release Pull Request or Publish
               uses: changesets/action@v1
               with:
-                  publish: npm publish
+                  publish: npm publish --provenance --access public
                   commit: 'chore: version packages'
                   title: 'chore: version packages'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  NPM_CONFIG_PROVENANCE: true

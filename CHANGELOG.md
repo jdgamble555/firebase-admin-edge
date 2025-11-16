@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.12
+
+### Patch Changes
+
+- f580cc8: Add GitHub login
+
 ## 1.0.11
 
 ### Patch Changes

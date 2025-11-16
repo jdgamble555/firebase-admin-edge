@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.15
+
+### Patch Changes
+
+- 438a082: json fix
+
 ## 1.0.14
 
 ### Patch Changes

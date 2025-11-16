@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.5
+
+### Patch Changes
+
+- 08336e9: summary
+
 ## 1.0.4
 
 ### Patch Changes

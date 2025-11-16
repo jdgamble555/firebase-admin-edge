@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.6
+
+### Patch Changes
+
+- d6d9fd3: fix provider types
+
 ## 1.0.5
 
 ### Patch Changes

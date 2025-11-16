@@ -38,7 +38,11 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Publish to npm
-              if: steps.changesets.outputs.published == 'true' || steps.changesets.outputs.hasChangesets == 'false'
-              run: npm publish --provenance --access public
+              if: steps.changesets.outputs.published == 'true'
+              run: |
+                  echo "NPM_CONFIG_REGISTRY: $NPM_CONFIG_REGISTRY"
+                  echo "NODE_AUTH_TOKEN is set: $([[ -n "$NODE_AUTH_TOKEN" ]] && echo "yes" || echo "no")"
+                  npm whoami || echo "Not authenticated"
+                  npm publish --provenance --access public
               env:
-                  NODE_AUTH_TOKEN: ''
+                  NPM_CONFIG_PROVENANCE: true

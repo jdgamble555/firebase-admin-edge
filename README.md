@@ -1,4 +1,4 @@
-**firebase-admin-edge**
+# Firebase Admin Edge
 
 Use Firebase Admin on the edge:
 
@@ -10,3 +10,68 @@ Use Firebase Admin on the edge:
 - Node.js
 
 Uses Rest API under the hood and has no side effects.
+
+## Installation
+
+```bash
+npm install firebase-admin-edge
+```
+
+## Quick Start
+
+### Basic Setup
+
+```typescript
+import { createFirebaseEdgeServer } from 'firebase-admin-edge';
+
+const server = createFirebaseEdgeServer({
+    serviceAccount: {
+        type: 'service_account',
+        project_id: 'your-project-id',
+        private_key_id: 'your-private-key-id',
+        ...
+    },
+    firebaseConfig: {
+        apiKey: 'your-web-api-key',
+        authDomain: 'your-project.firebaseapp.com',
+        ...
+    },
+    providers: {
+        google: {
+            client_id: 'your-google-oauth-client-id',
+            client_secret: 'your-google-oauth-client-secret',
+        },
+    },
+    cookies: {
+        getSession: (name) => getCookie(name), // Your cookie getter
+        saveSession: (name, value, options) => setCookie(name, value, options), // Your cookie setter
+    },
+});
+```
+
+Returns these functions:
+
+```
+auth,
+adminAuth,
+signOut,
+getUser,
+getGoogleLoginURL,
+signInWithGoogleWithCode,
+getToken
+```
+
+Better docs coming soon...
+
+## Features
+
+- ✅ **Edge Runtime Compatible** - Works in Vercel Edge, Cloudflare Workers, Deno, and Bun
+- ✅ **Zero Dependencies** - Uses only fetch API and jose
+- ✅ **TypeScript Support** - Full type safety and IntelliSense
+- ✅ **Session Management** - Secure HTTP-only cookies
+- ✅ **Google OAuth** - Complete OAuth 2.0 flow
+- ✅ **Token Management** - Generate client tokens from server sessions
+
+```
+
+```

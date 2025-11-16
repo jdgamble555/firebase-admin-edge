@@ -12,7 +12,7 @@ export const restFetch = async <T, A>(
             fetch?: typeof fetch;
         };
         headers?: Record<string, string>;
-    },
+    }
 ) => {
     const fetchFn = options?.global?.fetch ?? fetch;
     const form = options?.form ?? false;
@@ -27,17 +27,18 @@ export const restFetch = async <T, A>(
     const res = await fetchFn(url + query, {
         method: options?.method ?? 'POST',
         headers: {
+            Accept: 'application/json',
             'Content-Type': form
                 ? 'application/x-www-form-urlencoded'
                 : 'application/json',
             ...bearerHeader,
-            ...options?.headers,
+            ...options?.headers
         },
         body: options?.body
             ? form
                 ? new URLSearchParams(options.body as Record<string, string>)
                 : JSON.stringify(options.body)
-            : undefined,
+            : undefined
     });
 
     if (PRINT_URL) {
@@ -52,7 +53,7 @@ export const restFetch = async <T, A>(
 
             return {
                 data: null,
-                error,
+                error
             };
         }
 
@@ -60,7 +61,7 @@ export const restFetch = async <T, A>(
 
         return {
             data,
-            error: null,
+            error: null
         };
     }
 
@@ -69,7 +70,7 @@ export const restFetch = async <T, A>(
 
         return {
             data: null,
-            error,
+            error
         };
     }
 
@@ -77,6 +78,6 @@ export const restFetch = async <T, A>(
 
     return {
         data,
-        error: null,
+        error: null
     };
 };

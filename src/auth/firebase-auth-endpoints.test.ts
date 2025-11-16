@@ -7,7 +7,7 @@ import {
     getAccountInfoByUid,
     createSessionCookie,
     getJWKs,
-    getPublicKeys,
+    getPublicKeys
 } from './firebase-auth-endpoints.js';
 import * as restFetch from '../rest-fetch.js';
 
@@ -27,20 +27,20 @@ describe('firebase-auth-endpoints', () => {
         it('should refresh token successfully', async () => {
             const mockResponse = {
                 access_token: 'new-token',
-                refresh_token: 'new-refresh-token',
+                refresh_token: 'new-refresh-token'
             };
 
             const restFetchSpy = vi
                 .mocked(restFetch.restFetch)
                 .mockResolvedValue({
                     data: mockResponse,
-                    error: null,
+                    error: null
                 });
 
             const result = await refreshFirebaseIdToken(
                 'refresh-token',
                 API_KEY,
-                mockFetch,
+                mockFetch
             );
 
             expect(result.data).toEqual(mockResponse);
@@ -50,12 +50,12 @@ describe('firebase-auth-endpoints', () => {
                 expect.objectContaining({
                     body: {
                         grant_type: 'refresh_token',
-                        refresh_token: 'refresh-token',
+                        refresh_token: 'refresh-token'
                     },
                     params: { key: API_KEY },
                     form: true,
-                    global: { fetch: mockFetch },
-                }),
+                    global: { fetch: mockFetch }
+                })
             );
         });
 
@@ -64,12 +64,12 @@ describe('firebase-auth-endpoints', () => {
 
             vi.mocked(restFetch.restFetch).mockResolvedValue({
                 data: null,
-                error: { error: mockError },
+                error: { error: mockError }
             });
 
             const result = await refreshFirebaseIdToken(
                 'invalid-token',
-                API_KEY,
+                API_KEY
             );
 
             expect(result.data).toBeNull();
@@ -85,13 +85,13 @@ describe('firebase-auth-endpoints', () => {
                 .mocked(restFetch.restFetch)
                 .mockResolvedValue({
                     data: mockResponse,
-                    error: null,
+                    error: null
                 });
 
             const result = await createAuthUri(
                 'https://redirect.com',
                 API_KEY,
-                mockFetch,
+                mockFetch
             );
 
             expect(result.data).toEqual(mockResponse);
@@ -102,11 +102,11 @@ describe('firebase-auth-endpoints', () => {
                 expect.objectContaining({
                     body: {
                         continueUri: 'https://redirect.com',
-                        providerId: 'google.com',
+                        providerId: 'google.com'
                     },
                     params: { key: API_KEY },
-                    global: { fetch: mockFetch },
-                }),
+                    global: { fetch: mockFetch }
+                })
             );
         });
     });
@@ -115,12 +115,12 @@ describe('firebase-auth-endpoints', () => {
         it('should sign in with IDP successfully', async () => {
             const mockResponse = {
                 idToken: 'firebase-token',
-                refreshToken: 'refresh',
+                refreshToken: 'refresh'
             };
 
             vi.mocked(restFetch.restFetch).mockResolvedValue({
                 data: mockResponse,
-                error: null,
+                error: null
             });
 
             const result = await signInWithIdp(
@@ -128,7 +128,7 @@ describe('firebase-auth-endpoints', () => {
                 'https://request.com',
                 'google.com',
                 API_KEY,
-                mockFetch,
+                mockFetch
             );
 
             expect(result.data).toEqual(mockResponse);
@@ -140,9 +140,9 @@ describe('firebase-auth-endpoints', () => {
                         postBody:
                             'id_token=provider-token&providerId=google.com',
                         requestUri: 'https://request.com',
-                        returnSecureToken: true,
-                    },
-                }),
+                        returnSecureToken: true
+                    }
+                })
             );
         });
     });
@@ -153,13 +153,13 @@ describe('firebase-auth-endpoints', () => {
 
             vi.mocked(restFetch.restFetch).mockResolvedValue({
                 data: mockResponse,
-                error: null,
+                error: null
             });
 
             const result = await signInWithCustomToken(
                 'jwt-token',
                 API_KEY,
-                mockFetch,
+                mockFetch
             );
 
             expect(result.data).toEqual(mockResponse);
@@ -173,14 +173,14 @@ describe('firebase-auth-endpoints', () => {
 
             vi.mocked(restFetch.restFetch).mockResolvedValue({
                 data: { users: [mockUser] },
-                error: null,
+                error: null
             });
 
             const result = await getAccountInfoByUid(
                 'user-123',
                 ACCESS_TOKEN,
                 PROJECT_ID,
-                mockFetch,
+                mockFetch
             );
 
             expect(result.data).toEqual(mockUser);
@@ -190,13 +190,13 @@ describe('firebase-auth-endpoints', () => {
         it('should return null when no users found', async () => {
             vi.mocked(restFetch.restFetch).mockResolvedValue({
                 data: { users: [] },
-                error: null,
+                error: null
             });
 
             const result = await getAccountInfoByUid(
                 'user-123',
                 ACCESS_TOKEN,
-                PROJECT_ID,
+                PROJECT_ID
             );
 
             expect(result.data).toBeNull();
@@ -211,7 +211,7 @@ describe('firebase-auth-endpoints', () => {
                 .mocked(restFetch.restFetch)
                 .mockResolvedValue({
                     data: mockResponse,
-                    error: null,
+                    error: null
                 });
 
             const result = await createSessionCookie(
@@ -219,7 +219,7 @@ describe('firebase-auth-endpoints', () => {
                 ACCESS_TOKEN,
                 PROJECT_ID,
                 undefined,
-                mockFetch,
+                mockFetch
             );
 
             expect(result.data).toBe('cookie-value');
@@ -228,9 +228,9 @@ describe('firebase-auth-endpoints', () => {
                 expect.objectContaining({
                     body: expect.objectContaining({
                         // default is 14 days in ms converted to seconds
-                        validDuration: 1209600,
-                    }),
-                }),
+                        validDuration: 1209600
+                    })
+                })
             );
         });
 
@@ -239,7 +239,7 @@ describe('firebase-auth-endpoints', () => {
 
             vi.mocked(restFetch.restFetch).mockResolvedValue({
                 data: mockResponse,
-                error: null,
+                error: null
             });
 
             const result = await createSessionCookie(
@@ -247,7 +247,7 @@ describe('firebase-auth-endpoints', () => {
                 ACCESS_TOKEN,
                 PROJECT_ID,
                 3600, // 1 hour in seconds
-                mockFetch,
+                mockFetch
             );
 
             expect(result.data).toBe('cookie-value');
@@ -260,7 +260,7 @@ describe('firebase-auth-endpoints', () => {
 
             vi.mocked(restFetch.restFetch).mockResolvedValue({
                 data: { keys: mockKeys },
-                error: null,
+                error: null
             });
 
             const result = await getJWKs(mockFetch);
@@ -272,7 +272,7 @@ describe('firebase-auth-endpoints', () => {
         it('should return null when no keys found', async () => {
             vi.mocked(restFetch.restFetch).mockResolvedValue({
                 data: null,
-                error: null,
+                error: null
             });
 
             const result = await getJWKs();
@@ -287,7 +287,7 @@ describe('firebase-auth-endpoints', () => {
 
             vi.mocked(restFetch.restFetch).mockResolvedValue({
                 data: mockKeys,
-                error: null,
+                error: null
             });
 
             const result = await getPublicKeys(mockFetch);
@@ -301,7 +301,7 @@ describe('firebase-auth-endpoints', () => {
 
             vi.mocked(restFetch.restFetch).mockResolvedValue({
                 data: null,
-                error: { error: mockError },
+                error: { error: mockError }
             });
 
             const result = await getPublicKeys();
@@ -318,7 +318,7 @@ describe('firebase-auth-endpoints', () => {
                 .mocked(restFetch.restFetch)
                 .mockResolvedValue({
                     data: mockResponse,
-                    error: null,
+                    error: null
                 });
 
             const idToken = 'id-token';
@@ -330,7 +330,7 @@ describe('firebase-auth-endpoints', () => {
                 token,
                 projectId,
                 3600_000,
-                vi.fn(),
+                vi.fn()
             );
 
             expect(result.data).toBe('cookie-value');
@@ -340,7 +340,7 @@ describe('firebase-auth-endpoints', () => {
                 .calls[0] as unknown as [string, any];
 
             expect(calledUrl).toBe(
-                `https://identitytoolkit.googleapis.com/v1/projects/${projectId}:createSessionCookie`,
+                `https://identitytoolkit.googleapis.com/v1/projects/${projectId}:createSessionCookie`
             );
             expect(options.bearerToken).toBe(token);
             expect(options.body.idToken).toBe(idToken);
@@ -353,7 +353,7 @@ describe('firebase-auth-endpoints', () => {
                 .mocked(restFetch.restFetch)
                 .mockResolvedValue({
                     data: { users: [mockUser] },
-                    error: null,
+                    error: null
                 });
 
             const uid = 'user-123';
@@ -364,7 +364,7 @@ describe('firebase-auth-endpoints', () => {
                 uid,
                 token,
                 projectId,
-                vi.fn(),
+                vi.fn()
             );
 
             expect(result.data).toEqual(mockUser);
@@ -374,7 +374,7 @@ describe('firebase-auth-endpoints', () => {
                 .calls[0] as unknown as [string, any];
 
             expect(calledUrl).toBe(
-                `https://identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts:lookup`,
+                `https://identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts:lookup`
             );
             expect(options.bearerToken).toBe(token);
             expect(options.body.localId).toBe(uid);
@@ -389,7 +389,7 @@ describe('firebase-auth-endpoints', () => {
                 .mocked(restFetch.restFetch)
                 .mockResolvedValue({
                     data: mockResponse,
-                    error: null,
+                    error: null
                 });
 
             const result = await createSessionCookie(
@@ -397,7 +397,7 @@ describe('firebase-auth-endpoints', () => {
                 ACCESS_TOKEN,
                 PROJECT_ID,
                 1209600000, // 14 days in ms
-                mockFetch,
+                mockFetch
             );
 
             expect(result.data).toBe('cookie-value');
@@ -405,9 +405,9 @@ describe('firebase-auth-endpoints', () => {
                 expect.stringContaining('createSessionCookie'),
                 expect.objectContaining({
                     body: expect.objectContaining({
-                        validDuration: 1209600,
-                    }),
-                }),
+                        validDuration: 1209600
+                    })
+                })
             );
         });
     });

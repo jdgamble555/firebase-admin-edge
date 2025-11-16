@@ -8,7 +8,7 @@ describe('FirebaseAuth', () => {
     const mockConfig = {
         apiKey: 'test-api-key',
         authDomain: 'test-project.firebaseapp.com',
-        projectId: 'test-project',
+        projectId: 'test-project'
     };
 
     let firebaseAuth: FirebaseAuth;
@@ -28,17 +28,17 @@ describe('FirebaseAuth', () => {
                 expiresIn: '3600',
                 localId: 'user123',
                 providerId: 'google.com',
-                federatedId: 'fed123',
+                federatedId: 'fed123'
             };
             vi.mocked(endpoints.signInWithIdp).mockResolvedValue({
                 data: mockData,
-                error: null,
+                error: null
             });
 
             const result = await firebaseAuth.signInWithProvider(
                 'idToken',
                 'http://localhost',
-                'google.com',
+                'google.com'
             );
 
             expect(result.data).toEqual(mockData);
@@ -48,7 +48,7 @@ describe('FirebaseAuth', () => {
                 'http://localhost',
                 'google.com',
                 'test-api-key',
-                mockFetch,
+                mockFetch
             );
         });
 
@@ -56,12 +56,12 @@ describe('FirebaseAuth', () => {
             const mockError = { code: 400, message: 'Authentication failed' };
             vi.mocked(endpoints.signInWithIdp).mockResolvedValue({
                 data: null,
-                error: mockError,
+                error: mockError
             });
 
             const result = await firebaseAuth.signInWithProvider(
                 'idToken',
-                'http://localhost',
+                'http://localhost'
             );
 
             expect(result.data).toBeNull();
@@ -71,12 +71,12 @@ describe('FirebaseAuth', () => {
         it('should return null data and error when no data returned', async () => {
             vi.mocked(endpoints.signInWithIdp).mockResolvedValue({
                 data: null,
-                error: null,
+                error: null
             });
 
             const result = await firebaseAuth.signInWithProvider(
                 'idToken',
-                'http://localhost',
+                'http://localhost'
             );
 
             expect(result.data).toBeNull();
@@ -92,11 +92,11 @@ describe('FirebaseAuth', () => {
                 expiresIn: '3600',
                 localId: 'user456',
                 providerId: 'custom',
-                federatedId: 'fed456',
+                federatedId: 'fed456'
             };
             vi.mocked(endpoints.signInWithCustomToken).mockResolvedValue({
                 data: mockData,
-                error: null,
+                error: null
             });
 
             const result =
@@ -107,7 +107,7 @@ describe('FirebaseAuth', () => {
             expect(endpoints.signInWithCustomToken).toHaveBeenCalledWith(
                 'customToken',
                 'test-api-key',
-                mockFetch,
+                mockFetch
             );
         });
 
@@ -115,7 +115,7 @@ describe('FirebaseAuth', () => {
             const mockError = { code: 400, message: 'Invalid custom token' };
             vi.mocked(endpoints.signInWithCustomToken).mockResolvedValue({
                 data: null,
-                error: mockError,
+                error: mockError
             });
 
             const result =
@@ -128,7 +128,7 @@ describe('FirebaseAuth', () => {
         it('should return null data and error when no data returned', async () => {
             vi.mocked(endpoints.signInWithCustomToken).mockResolvedValue({
                 data: null,
-                error: null,
+                error: null
             });
 
             const result =

@@ -1,11 +1,11 @@
 import {
     createSessionCookie,
-    getAccountInfoByUid,
+    getAccountInfoByUid
 } from './firebase-auth-endpoints.js';
 import {
     signJWTCustomToken,
     verifyJWT,
-    verifySessionJWT,
+    verifySessionJWT
 } from './firebase-jwt.js';
 import type { ServiceAccount } from './firebase-types.js';
 import { getToken } from './google-oauth.js';
@@ -13,7 +13,7 @@ import { getToken } from './google-oauth.js';
 export class FirebaseAdminAuth {
     constructor(
         private serviceAccountKey: ServiceAccount,
-        private fetch?: typeof globalThis.fetch,
+        private fetch?: typeof globalThis.fetch
     ) {}
 
     async getUser(uid: string) {
@@ -21,13 +21,13 @@ export class FirebaseAdminAuth {
 
         const { data: token, error: getTokenError } = await getToken(
             this.serviceAccountKey,
-            this.fetch,
+            this.fetch
         );
 
         if (getTokenError) {
             return {
                 data: null,
-                error: getTokenError,
+                error: getTokenError
             };
         }
 
@@ -37,8 +37,8 @@ export class FirebaseAdminAuth {
                 error: {
                     code: 500,
                     message: 'No token returned',
-                    errors: [],
-                },
+                    errors: []
+                }
             };
         }
 
@@ -46,19 +46,19 @@ export class FirebaseAdminAuth {
             uid,
             token.access_token,
             this.serviceAccountKey.project_id,
-            this.fetch,
+            this.fetch
         );
 
         if (error) {
             return {
                 data: null,
-                error,
+                error
             };
         }
 
         return {
             data,
-            error: null,
+            error: null
         };
     }
 
@@ -66,13 +66,13 @@ export class FirebaseAdminAuth {
         const { data: decodedIdToken, error: verifyError } = await verifyJWT(
             idToken,
             this.serviceAccountKey.project_id,
-            this.fetch,
+            this.fetch
         );
 
         if (verifyError) {
             return {
                 data: null,
-                error: verifyError,
+                error: verifyError
             };
         }
 
@@ -81,26 +81,26 @@ export class FirebaseAdminAuth {
                 data: null,
                 error: {
                     message: 'Could not decode ID token!',
-                    code: 'ERR_DECODE_ID_TOKEN',
-                },
+                    code: 'ERR_DECODE_ID_TOKEN'
+                }
             };
         }
 
         if (!checkRevoked) {
             return {
                 data: decodedIdToken,
-                error: null,
+                error: null
             };
         }
 
         const { data: user, error: userError } = await this.getUser(
-            decodedIdToken.sub,
+            decodedIdToken.sub
         );
 
         if (userError) {
             return {
                 data: null,
-                error: userError,
+                error: userError
             };
         }
 
@@ -109,8 +109,8 @@ export class FirebaseAdminAuth {
                 data: null,
                 error: {
                     message: 'No user record found!',
-                    code: 'ERR_NO_USER',
-                },
+                    code: 'ERR_NO_USER'
+                }
             };
         }
 
@@ -119,8 +119,8 @@ export class FirebaseAdminAuth {
                 data: null,
                 error: {
                     message: 'User is disabled!',
-                    code: 'ERR_USER_DISABLED',
-                },
+                    code: 'ERR_USER_DISABLED'
+                }
             };
         }
 
@@ -138,31 +138,31 @@ export class FirebaseAdminAuth {
                     data: null,
                     error: {
                         message: 'Token has been revoked!',
-                        code: 'ERR_TOKEN_REVOKED',
-                    },
+                        code: 'ERR_TOKEN_REVOKED'
+                    }
                 };
             }
         }
 
         return {
             data: decodedIdToken,
-            error: null,
+            error: null
         };
     }
 
     async createSessionCookie(
         idToken: string,
-        { expiresIn }: { expiresIn: number },
+        { expiresIn }: { expiresIn: number }
     ) {
         const { data: token, error: getTokenError } = await getToken(
             this.serviceAccountKey,
-            this.fetch,
+            this.fetch
         );
 
         if (getTokenError) {
             return {
                 data: null,
-                error: getTokenError,
+                error: getTokenError
             };
         }
 
@@ -172,8 +172,8 @@ export class FirebaseAdminAuth {
                 error: {
                     code: 500,
                     message: 'No token returned',
-                    errors: [],
-                },
+                    errors: []
+                }
             };
         }
 
@@ -182,43 +182,43 @@ export class FirebaseAdminAuth {
             token.access_token,
             this.serviceAccountKey.project_id,
             expiresIn,
-            this.fetch,
+            this.fetch
         );
 
         if (error) {
             return {
                 data: null,
-                error,
+                error
             };
         }
 
         return {
             data,
-            error: null,
+            error: null
         };
     }
 
     async verifySessionCookie(
         sessionCookie: string,
-        checkRevoked: boolean = false,
+        checkRevoked: boolean = false
     ) {
         const { data, error } = await verifySessionJWT(
             sessionCookie,
             this.serviceAccountKey.project_id,
-            this.fetch,
+            this.fetch
         );
 
         if (error) {
             return {
                 data: null,
-                error,
+                error
             };
         }
 
         if (!checkRevoked) {
             return {
                 data,
-                error: null,
+                error: null
             };
         }
 
@@ -227,7 +227,7 @@ export class FirebaseAdminAuth {
         if (userError) {
             return {
                 data: null,
-                error: userError,
+                error: userError
             };
         }
 
@@ -236,14 +236,14 @@ export class FirebaseAdminAuth {
                 data: null,
                 error: {
                     message: 'No user record found!',
-                    code: 'ERR_NO_USER',
-                },
+                    code: 'ERR_NO_USER'
+                }
             };
         }
 
         return {
             data,
-            error: null,
+            error: null
         };
     }
 
@@ -251,26 +251,26 @@ export class FirebaseAdminAuth {
         const { data, error } = await signJWTCustomToken(
             uid,
             this.serviceAccountKey,
-            developerClaims,
+            developerClaims
         );
 
         if (error) {
             return {
                 data: null,
-                error,
+                error
             };
         }
 
         if (!data) {
             return {
                 data: null,
-                error: new Error('No custom token returned'),
+                error: new Error('No custom token returned')
             };
         }
 
         return {
             data,
-            error: null,
+            error: null
         };
     }
 }

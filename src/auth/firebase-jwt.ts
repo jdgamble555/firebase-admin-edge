@@ -6,7 +6,7 @@ import {
     SignJWT,
     importX509,
     importSPKI,
-    type JWTPayload,
+    type JWTPayload
 } from 'jose';
 import {
     JOSEError,
@@ -14,11 +14,11 @@ import {
     JWSSignatureVerificationFailed,
     JWTClaimValidationFailed,
     JWTExpired,
-    JWTInvalid,
+    JWTInvalid
 } from 'jose/errors';
 import type {
     FirebaseIdTokenPayload,
-    ServiceAccount,
+    ServiceAccount
 } from './firebase-types.js';
 import { getJWKs, getPublicKeys } from './firebase-auth-endpoints.js';
 
@@ -30,7 +30,7 @@ const SCOPES = [
     'https://www.googleapis.com/auth/datastore',
     'https://www.googleapis.com/auth/identitytoolkit',
     'https://www.googleapis.com/auth/devstorage.read_write',
-    'https://www.googleapis.com/auth/devstorage.read_write',
+    'https://www.googleapis.com/auth/devstorage.read_write'
 ] as const;
 
 const keyMap = new Map<string, typeof CryptoKey.prototype>();
@@ -65,7 +65,7 @@ type SignJwtResult =
 export async function verifySessionJWT(
     sessionCookie: string,
     projectId: string,
-    fetchFn: typeof globalThis.fetch = globalThis.fetch,
+    fetchFn: typeof globalThis.fetch = globalThis.fetch
 ) {
     try {
         const { data: keyData, error } = await getPublicKeys(fetchFn);
@@ -73,14 +73,14 @@ export async function verifySessionJWT(
         if (error) {
             return {
                 data: null,
-                error,
+                error
             };
         }
 
         if (!keyData) {
             return {
                 data: null,
-                error: new Error('No public keys retrieved'),
+                error: new Error('No public keys retrieved')
             };
         }
 
@@ -94,7 +94,7 @@ export async function verifySessionJWT(
         ) {
             return {
                 error: new Error('Invalid session cookie: no KID found'),
-                data: null,
+                data: null
             };
         }
 
@@ -103,7 +103,7 @@ export async function verifySessionJWT(
         if (!publicKeyString) {
             return {
                 error: new Error('No public key found for the given KID'),
-                data: null,
+                data: null
             };
         }
 
@@ -116,25 +116,25 @@ export async function verifySessionJWT(
         const { payload } = await jwtVerify(sessionCookie, publicKey, {
             issuer: expectedIssuer,
             audience: expectedAudience,
-            algorithms: [ALGORITHM_RS256],
+            algorithms: [ALGORITHM_RS256]
         });
 
         return {
             error: null,
-            data: payload as FirebaseIdTokenPayload,
+            data: payload as FirebaseIdTokenPayload
         };
     } catch (err: unknown) {
         if (err instanceof JWTExpired) {
             return {
                 error: new Error('JWT has expired'),
-                data: null,
+                data: null
             };
         }
 
         if (err instanceof JWTClaimValidationFailed) {
             return {
                 error: new Error(`JWT claim validation failed: ${err.message}`),
-                data: null,
+                data: null
             };
         }
 
@@ -144,7 +144,7 @@ export async function verifySessionJWT(
         ) {
             return {
                 error: new Error('JWT signature verification failed'),
-                data: null,
+                data: null
             };
         }
 
@@ -152,9 +152,9 @@ export async function verifySessionJWT(
             error: new Error(
                 err instanceof Error
                     ? err.message
-                    : 'Unknown error during JWT verification',
+                    : 'Unknown error during JWT verification'
             ),
-            data: null,
+            data: null
         };
     }
 }
@@ -162,7 +162,7 @@ export async function verifySessionJWT(
 export async function verifyJWT(
     idToken: string,
     projectId: string,
-    fetchFn?: typeof globalThis.fetch,
+    fetchFn?: typeof globalThis.fetch
 ) {
     try {
         const { kid } = decodeProtectedHeader(idToken);
@@ -170,7 +170,7 @@ export async function verifyJWT(
         if (!kid) {
             return {
                 error: new Error('Invalid ID token: no KID found'),
-                data: null,
+                data: null
             };
         }
 
@@ -179,14 +179,14 @@ export async function verifyJWT(
         if (error) {
             return {
                 error,
-                data: null,
+                data: null
             };
         }
 
         if (!data || !data.length) {
             return {
                 error: new Error('No JWKs retrieved'),
-                data: null,
+                data: null
             };
         }
 
@@ -195,32 +195,32 @@ export async function verifyJWT(
         if (!jwk) {
             return {
                 error: new Error(`No matching JWK found for KID: ${kid}`),
-                data: null,
+                data: null
             };
         }
 
         const { payload } = await jwtVerify(idToken, jwk, {
             issuer: `https://securetoken.google.com/${projectId}`,
             audience: projectId,
-            algorithms: ['RS256'],
+            algorithms: ['RS256']
         });
 
         return {
             error: null,
-            data: payload as FirebaseIdTokenPayload,
+            data: payload as FirebaseIdTokenPayload
         };
     } catch (err: unknown) {
         if (err instanceof JWTExpired) {
             return {
                 error: new Error('JWT has expired'),
-                data: null,
+                data: null
             };
         }
 
         if (err instanceof JWTClaimValidationFailed) {
             return {
                 error: new Error(`JWT claim validation failed: ${err.message}`),
-                data: null,
+                data: null
             };
         }
 
@@ -230,7 +230,7 @@ export async function verifyJWT(
         ) {
             return {
                 error: new Error('JWT signature verification failed'),
-                data: null,
+                data: null
             };
         }
 
@@ -238,15 +238,15 @@ export async function verifyJWT(
             error: new Error(
                 err instanceof Error
                     ? err.message
-                    : 'Unknown error during JWT verification',
+                    : 'Unknown error during JWT verification'
             ),
-            data: null,
+            data: null
         };
     }
 }
 
 export async function signJWT(
-    serviceAccount: ServiceAccount,
+    serviceAccount: ServiceAccount
 ): Promise<SignJwtResult> {
     const { private_key, client_email } = serviceAccount;
 
@@ -263,8 +263,8 @@ export async function signJWT(
             return {
                 data: null,
                 error: new Error(
-                    'Failed to import private key. Please ensure the private key is correctly formatted.',
-                ),
+                    'Failed to import private key. Please ensure the private key is correctly formatted.'
+                )
             };
         }
 
@@ -276,7 +276,7 @@ export async function signJWT(
             sub: client_email,
             aud: OAUTH_TOKEN_URL,
             iat: now,
-            exp: now + 3600, // 1 hour
+            exp: now + 3600 // 1 hour
         };
 
         const token = await new SignJWT(payload)
@@ -285,7 +285,7 @@ export async function signJWT(
 
         return {
             data: token,
-            error: null,
+            error: null
         };
     } catch (e: unknown) {
         if (e instanceof JOSEError) {
@@ -298,7 +298,7 @@ export async function signJWT(
 
         return {
             data: null,
-            error: new Error('Unknown error during JWT signing'),
+            error: new Error('Unknown error during JWT signing')
         };
     }
 }
@@ -320,26 +320,26 @@ const RESERVED_CLAIMS = [
     'nonce',
     'sub',
     'firebase',
-    'user_id',
+    'user_id'
 ];
 
 export async function signJWTCustomToken(
     uid: string,
     serviceAccount: ServiceAccount,
-    additionalClaims: object = {},
+    additionalClaims: object = {}
 ) {
     const { private_key, client_email } = serviceAccount;
 
     if (
         Object.keys(additionalClaims).some(
-            (k) => RESERVED_CLAIMS.includes(k) || k.startsWith('firebase'),
+            (k) => RESERVED_CLAIMS.includes(k) || k.startsWith('firebase')
         )
     ) {
         return {
             data: null,
             error: new Error(
-                `Reserved claims (${RESERVED_CLAIMS.join(', ')}) cannot be used in additionalClaims`,
-            ),
+                `Reserved claims (${RESERVED_CLAIMS.join(', ')}) cannot be used in additionalClaims`
+            )
         };
     }
 
@@ -365,19 +365,19 @@ export async function signJWTCustomToken(
 
         return {
             data: token,
-            error: null,
+            error: null
         };
     } catch (e: unknown) {
         if (e instanceof errors.JOSEError) {
             return {
                 data: null,
-                error: e,
+                error: e
             };
         }
 
         return {
             data: null,
-            error: e as Error,
+            error: e as Error
         };
     }
 }

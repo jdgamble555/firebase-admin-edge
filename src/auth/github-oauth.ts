@@ -15,7 +15,7 @@ export type GithubOAuthError = {
 export function createGitHubOAuthLoginUrl(
     redirect_uri: string,
     path: string,
-    client_id: string,
+    client_id: string
 ) {
     return new URL(
         'https://github.com/login/oauth/authorize?' +
@@ -25,9 +25,9 @@ export function createGitHubOAuthLoginUrl(
                 scope: 'read:user user:email',
                 state: JSON.stringify({
                     next: path,
-                    provider: 'github',
-                }),
-            }).toString(),
+                    provider: 'github'
+                })
+            }).toString()
     ).toString();
 }
 
@@ -36,7 +36,7 @@ export async function exchangeCodeForGitHubIdToken(
     redirect_uri: string,
     client_id: string,
     client_secret: string,
-    fetchFn?: typeof globalThis.fetch,
+    fetchFn?: typeof globalThis.fetch
 ) {
     const url = 'https://github.com/login/oauth/access_token';
 
@@ -49,13 +49,13 @@ export async function exchangeCodeForGitHubIdToken(
             code,
             client_id,
             client_secret,
-            redirect_uri,
+            redirect_uri
         },
-        form: true,
+        form: true
     });
 
     return {
         data,
-        error: error ? error.error : null,
+        error: error ? error.error : null
     };
 }

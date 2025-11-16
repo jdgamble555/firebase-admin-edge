@@ -3,7 +3,7 @@ import {
     verifySessionJWT,
     verifyJWT,
     signJWT,
-    signJWTCustomToken,
+    signJWTCustomToken
 } from './firebase-jwt.js';
 import type { ServiceAccount } from './firebase-types.js';
 import * as firebaseAuthEndpoints from './firebase-auth-endpoints.js';
@@ -25,7 +25,7 @@ describe('firebase-jwt', () => {
         auth_provider_x509_cert_url:
             'https://www.googleapis.com/oauth2/v1/certs',
         client_x509_cert_url:
-            'https://www.googleapis.com/robot/v1/metadata/x509/test%40test-project.iam.gserviceaccount.com',
+            'https://www.googleapis.com/robot/v1/metadata/x509/test%40test-project.iam.gserviceaccount.com'
     };
 
     beforeEach(() => {
@@ -36,12 +36,12 @@ describe('firebase-jwt', () => {
         it('should return error when no public keys retrieved', async () => {
             vi.spyOn(firebaseAuthEndpoints, 'getPublicKeys').mockResolvedValue({
                 data: null,
-                error: { code: 500, message: 'Failed to fetch keys' },
+                error: { code: 500, message: 'Failed to fetch keys' }
             });
 
             const result = await verifySessionJWT(
                 'invalid-token',
-                mockProjectId,
+                mockProjectId
             );
 
             expect(result.error).toBeDefined();
@@ -51,12 +51,12 @@ describe('firebase-jwt', () => {
         it('should return error when keyData is null', async () => {
             vi.spyOn(firebaseAuthEndpoints, 'getPublicKeys').mockResolvedValue({
                 data: null,
-                error: null,
+                error: null
             });
 
             const result = await verifySessionJWT(
                 'invalid-token',
-                mockProjectId,
+                mockProjectId
             );
 
             expect(result.error).toEqual(new Error('No public keys retrieved'));
@@ -66,12 +66,12 @@ describe('firebase-jwt', () => {
         it('should return error when token has no KID', async () => {
             vi.spyOn(firebaseAuthEndpoints, 'getPublicKeys').mockResolvedValue({
                 data: { key1: 'public-key' },
-                error: null,
+                error: null
             });
 
             const result = await verifySessionJWT(
                 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.invalid',
-                mockProjectId,
+                mockProjectId
             );
 
             expect(result.error?.message).toContain('Invalid session cookie');
@@ -81,12 +81,12 @@ describe('firebase-jwt', () => {
         it('should return error when public key not found for KID', async () => {
             vi.spyOn(firebaseAuthEndpoints, 'getPublicKeys').mockResolvedValue({
                 data: { key1: 'public-key' },
-                error: null,
+                error: null
             });
 
             const result = await verifySessionJWT(
                 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImtleTIifQ.eyJzdWIiOiIxMjM0NTY3ODkwIn0.invalid',
-                mockProjectId,
+                mockProjectId
             );
 
             expect(result.error?.message).toContain('Invalid session cookie');
@@ -98,11 +98,11 @@ describe('firebase-jwt', () => {
         it('should return error when token has no KID', async () => {
             const result = await verifyJWT(
                 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.invalid',
-                mockProjectId,
+                mockProjectId
             );
 
             expect(result.error?.message).toContain(
-                'Invalid ID token: no KID found',
+                'Invalid ID token: no KID found'
             );
             expect(result.data).toBeNull();
         });
@@ -110,12 +110,12 @@ describe('firebase-jwt', () => {
         it('should return error when getJWKs fails', async () => {
             vi.spyOn(firebaseAuthEndpoints, 'getJWKs').mockResolvedValue({
                 data: null,
-                error: { code: 500, message: 'Network error' },
+                error: { code: 500, message: 'Network error' }
             });
 
             const result = await verifyJWT(
                 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImtleTEifQ.eyJzdWIiOiIxMjM0NTY3ODkwIn0.invalid',
-                mockProjectId,
+                mockProjectId
             );
 
             expect(result.error).toBeDefined();
@@ -125,12 +125,12 @@ describe('firebase-jwt', () => {
         it('should return error when no JWKs retrieved', async () => {
             vi.spyOn(firebaseAuthEndpoints, 'getJWKs').mockResolvedValue({
                 data: null,
-                error: null,
+                error: null
             });
 
             const result = await verifyJWT(
                 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImtleTEifQ.eyJzdWIiOiIxMjM0NTY3ODkwIn0.invalid',
-                mockProjectId,
+                mockProjectId
             );
 
             expect(result.error?.message).toBe('No JWKs retrieved');
@@ -140,12 +140,12 @@ describe('firebase-jwt', () => {
         it('should return error when no matching JWK found', async () => {
             vi.spyOn(firebaseAuthEndpoints, 'getJWKs').mockResolvedValue({
                 data: [{ kid: 'different-key', kty: 'RSA' }],
-                error: null,
+                error: null
             });
 
             const result = await verifyJWT(
                 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImtleTEifQ.eyJzdWIiOiIxMjM0NTY3ODkwIn0.invalid',
-                mockProjectId,
+                mockProjectId
             );
 
             expect(result.error?.message).toContain('No matching JWK found');
@@ -157,13 +157,13 @@ describe('firebase-jwt', () => {
         it('should return error when private key is invalid', async () => {
             const invalidServiceAccount: ServiceAccount = {
                 ...mockServiceAccount,
-                private_key: 'invalid-key',
+                private_key: 'invalid-key'
             };
 
             const result = await signJWT(invalidServiceAccount);
 
             expect(result.error?.message).toContain(
-                'Failed to import private key',
+                'Failed to import private key'
             );
             expect(result.data).toBeNull();
         });
@@ -173,8 +173,8 @@ describe('firebase-jwt', () => {
                 ...mockServiceAccount,
                 private_key: mockServiceAccount.private_key.replace(
                     /\n/g,
-                    '\\n',
-                ),
+                    '\\n'
+                )
             };
 
             const result = await signJWT(serviceAccountWithEscaped);
@@ -188,7 +188,7 @@ describe('firebase-jwt', () => {
 
         it('should return error when reserved claims are used', async () => {
             const result = await signJWTCustomToken(uid, mockServiceAccount, {
-                aud: 'reserved',
+                aud: 'reserved'
             });
 
             expect(result.error?.message).toContain('Reserved claims');
@@ -197,7 +197,7 @@ describe('firebase-jwt', () => {
 
         it('should return error when firebase prefixed claims are used', async () => {
             const result = await signJWTCustomToken(uid, mockServiceAccount, {
-                firebase_custom: 'value',
+                firebase_custom: 'value'
             });
 
             expect(result.error?.message).toContain('Reserved claims');
@@ -207,13 +207,13 @@ describe('firebase-jwt', () => {
         it('should return error with invalid private key', async () => {
             const invalidServiceAccount: ServiceAccount = {
                 ...mockServiceAccount,
-                private_key: 'invalid-key',
+                private_key: 'invalid-key'
             };
 
             const result = await signJWTCustomToken(
                 uid,
                 invalidServiceAccount,
-                {},
+                {}
             );
 
             expect(result.error).toBeDefined();

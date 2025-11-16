@@ -1,7 +1,7 @@
 import type {
     FirebaseRestError,
     GoogleTokenResponse,
-    ServiceAccount,
+    ServiceAccount
 } from './firebase-types.js';
 import { restFetch } from '../rest-fetch.js';
 import { signJWT } from './firebase-jwt.js';
@@ -9,7 +9,7 @@ import { signJWT } from './firebase-jwt.js';
 export function createGoogleOAuthLoginUrl(
     redirect_uri: string,
     path: string,
-    client_id: string,
+    client_id: string
 ) {
     return new URL(
         'https://accounts.google.com/o/oauth2/v2/auth?' +
@@ -22,9 +22,9 @@ export function createGoogleOAuthLoginUrl(
                 prompt: 'consent',
                 state: JSON.stringify({
                     next: path,
-                    provider: 'google',
-                }),
-            }).toString(),
+                    provider: 'google'
+                })
+            }).toString()
     ).toString();
 }
 
@@ -33,7 +33,7 @@ export async function exchangeCodeForGoogleIdToken(
     redirect_uri: string,
     client_id: string,
     client_secret: string,
-    fetchFn?: typeof globalThis.fetch,
+    fetchFn?: typeof globalThis.fetch
 ) {
     const url = 'https://oauth2.googleapis.com/token';
 
@@ -47,20 +47,20 @@ export async function exchangeCodeForGoogleIdToken(
             client_id,
             client_secret,
             redirect_uri,
-            grant_type: 'authorization_code',
+            grant_type: 'authorization_code'
         },
-        form: true,
+        form: true
     });
 
     return {
         data,
-        error: error ? error.error : null,
+        error: error ? error.error : null
     };
 }
 
 export async function getToken(
     serviceAccount: ServiceAccount,
-    fetch?: typeof globalThis.fetch,
+    fetch?: typeof globalThis.fetch
 ) {
     const url = 'https://oauth2.googleapis.com/token';
 
@@ -71,7 +71,7 @@ export async function getToken(
         if (jwtError) {
             return {
                 data: null,
-                error: jwtError,
+                error: jwtError
             };
         }
 
@@ -81,8 +81,8 @@ export async function getToken(
                 error: {
                     code: 500,
                     message: 'No JWT data returned',
-                    errors: [],
-                },
+                    errors: []
+                }
             };
         }
 
@@ -93,18 +93,18 @@ export async function getToken(
             global: { fetch },
             body: {
                 grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-                assertion: jwtData,
+                assertion: jwtData
             },
             headers: {
                 'Cache-Control': 'no-cache',
-                Host: 'oauth2.googleapis.com',
+                Host: 'oauth2.googleapis.com'
             },
-            form: true,
+            form: true
         });
 
         return {
             data,
-            error: error ? error.error : null,
+            error: error ? error.error : null
         };
     } catch (e: unknown) {
         if (e instanceof Error) {
@@ -113,8 +113,8 @@ export async function getToken(
                 error: {
                     code: 500,
                     message: e.message,
-                    errors: [],
-                },
+                    errors: []
+                }
             };
         }
     }
@@ -124,7 +124,7 @@ export async function getToken(
         error: {
             code: 500,
             message: 'Unknown error',
-            errors: [],
-        },
+            errors: []
+        }
     };
 }

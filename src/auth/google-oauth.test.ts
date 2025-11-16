@@ -2,17 +2,17 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 import {
     createGoogleOAuthLoginUrl,
     exchangeCodeForGoogleIdToken,
-    getToken,
+    getToken
 } from './google-oauth.js';
 
 const restFetchMock = vi.hoisted(() => vi.fn());
 const signJWTMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../rest-fetch.js', () => ({
-    restFetch: restFetchMock,
+    restFetch: restFetchMock
 }));
 vi.mock('./firebase-jwt.js', () => ({
-    signJWT: signJWTMock,
+    signJWT: signJWTMock
 }));
 
 beforeEach(() => {
@@ -25,16 +25,16 @@ describe('createGoogleOAuthLoginUrl', () => {
         const url = createGoogleOAuthLoginUrl(
             'https://example.com/callback',
             '/next/path',
-            'client-123',
+            'client-123'
         );
         const parsed = new URL(url);
 
         expect(parsed.origin + parsed.pathname).toBe(
-            'https://accounts.google.com/o/oauth2/v2/auth',
+            'https://accounts.google.com/o/oauth2/v2/auth'
         );
         expect(parsed.searchParams.get('client_id')).toBe('client-123');
         expect(parsed.searchParams.get('redirect_uri')).toBe(
-            'https://example.com/callback',
+            'https://example.com/callback'
         );
         expect(parsed.searchParams.get('response_type')).toBe('code');
         expect(parsed.searchParams.get('scope')).toBe('openid email profile');
@@ -42,7 +42,7 @@ describe('createGoogleOAuthLoginUrl', () => {
         expect(parsed.searchParams.get('prompt')).toBe('consent');
         expect(JSON.parse(parsed.searchParams.get('state') ?? '')).toEqual({
             next: '/next/path',
-            provider: 'google',
+            provider: 'google'
         });
     });
 });
@@ -52,7 +52,7 @@ describe('exchangeCodeForGoogleIdToken', () => {
         code: 'auth-code',
         redirect_uri: 'https://example.com/callback',
         client_id: 'client-123',
-        client_secret: 'secret-xyz',
+        client_secret: 'secret-xyz'
     };
 
     it('returns token data when REST call succeeds', async () => {
@@ -63,15 +63,15 @@ describe('exchangeCodeForGoogleIdToken', () => {
             payload.code,
             payload.redirect_uri,
             payload.client_id,
-            payload.client_secret,
+            payload.client_secret
         );
 
         expect(restFetchMock).toHaveBeenCalledWith(
             'https://oauth2.googleapis.com/token',
             expect.objectContaining({
                 body: expect.objectContaining(payload),
-                form: true,
-            }),
+                form: true
+            })
         );
         expect(result).toEqual({ data: expectedData, error: null });
     });
@@ -80,14 +80,14 @@ describe('exchangeCodeForGoogleIdToken', () => {
         const apiError = { code: 400, message: 'invalid_grant' };
         restFetchMock.mockResolvedValue({
             data: null,
-            error: { error: apiError },
+            error: { error: apiError }
         });
 
         const result = await exchangeCodeForGoogleIdToken(
             payload.code,
             payload.redirect_uri,
             payload.client_id,
-            payload.client_secret,
+            payload.client_secret
         );
 
         expect(result).toEqual({ data: null, error: apiError });
@@ -99,7 +99,7 @@ describe('getToken', () => {
         client_email: 'test@project.iam.gserviceaccount.com',
         private_key:
             '-----BEGIN PRIVATE KEY-----\nABC\n-----END PRIVATE KEY-----\n',
-        token_uri: 'https://oauth2.googleapis.com/token',
+        token_uri: 'https://oauth2.googleapis.com/token'
     } as any;
 
     it('requests new token with signed JWT', async () => {
@@ -117,14 +117,14 @@ describe('getToken', () => {
                 global: { fetch: fakeFetch },
                 body: {
                     grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-                    assertion: 'signed-jwt',
+                    assertion: 'signed-jwt'
                 },
                 headers: expect.objectContaining({
                     'Cache-Control': 'no-cache',
-                    Host: 'oauth2.googleapis.com',
+                    Host: 'oauth2.googleapis.com'
                 }),
-                form: true,
-            }),
+                form: true
+            })
         );
         expect(result).toEqual({ data: tokenData, error: null });
     });
@@ -149,8 +149,8 @@ describe('getToken', () => {
             error: {
                 code: 500,
                 message: 'No JWT data returned',
-                errors: [],
-            },
+                errors: []
+            }
         });
     });
 
@@ -159,7 +159,7 @@ describe('getToken', () => {
         signJWTMock.mockResolvedValue({ data: 'signed-jwt', error: null });
         restFetchMock.mockResolvedValue({
             data: null,
-            error: { error: apiError },
+            error: { error: apiError }
         });
 
         const result = await getToken(serviceAccount);
@@ -175,7 +175,7 @@ describe('getToken', () => {
 
         expect(result).toEqual({
             data: null,
-            error: { code: 500, message: 'boom', errors: [] },
+            error: { code: 500, message: 'boom', errors: [] }
         });
     });
 });

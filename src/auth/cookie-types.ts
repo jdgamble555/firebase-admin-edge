@@ -15,11 +15,11 @@ export type CookieOptions = Partial<{
 }> & { path: string };
 
 export type GetSession = (
-    name: string,
+    name: string
 ) => Promise<string | null | undefined> | string | null | undefined;
 
 export type SetSession = (
     name: string,
     value: string,
-    options: CookieOptions,
+    options: CookieOptions
 ) => Promise<void> | void;

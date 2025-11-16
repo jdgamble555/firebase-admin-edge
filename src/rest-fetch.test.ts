@@ -13,7 +13,7 @@ describe('restFetch', () => {
         mockFetch.mockResolvedValue({
             ok: true,
             headers: new Headers({ 'content-type': 'application/json' }),
-            json: () => Promise.resolve({ success: true }),
+            json: () => Promise.resolve({ success: true })
         } as Response);
 
         const result = await restFetch('https://api.example.com');
@@ -21,7 +21,7 @@ describe('restFetch', () => {
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: undefined,
+            body: undefined
         });
         expect(result).toEqual({ data: { success: true }, error: null });
     });
@@ -30,17 +30,17 @@ describe('restFetch', () => {
         mockFetch.mockResolvedValue({
             ok: true,
             headers: new Headers({ 'content-type': 'application/json' }),
-            json: () => Promise.resolve({ data: 'test' }),
+            json: () => Promise.resolve({ data: 'test' })
         } as Response);
 
         await restFetch('https://api.example.com', {
             method: 'GET',
-            params: { foo: 'bar', baz: 'qux' },
+            params: { foo: 'bar', baz: 'qux' }
         });
 
         expect(mockFetch).toHaveBeenCalledWith(
             'https://api.example.com?foo=bar&baz=qux',
-            expect.any(Object),
+            expect.any(Object)
         );
     });
 
@@ -48,18 +48,18 @@ describe('restFetch', () => {
         mockFetch.mockResolvedValue({
             ok: true,
             headers: new Headers({ 'content-type': 'application/json' }),
-            json: () => Promise.resolve({}),
+            json: () => Promise.resolve({})
         } as Response);
 
         await restFetch('https://api.example.com', {
             method: 'POST',
-            body: { name: 'test', value: 123 },
+            body: { name: 'test', value: 123 }
         });
 
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: '{"name":"test","value":123}',
+            body: '{"name":"test","value":123}'
         });
     });
 
@@ -67,18 +67,18 @@ describe('restFetch', () => {
         mockFetch.mockResolvedValue({
             ok: true,
             headers: new Headers({ 'content-type': 'application/json' }),
-            json: () => Promise.resolve({}),
+            json: () => Promise.resolve({})
         } as Response);
 
         await restFetch('https://api.example.com', {
             form: true,
-            body: { username: 'test', password: 'secret' },
+            body: { username: 'test', password: 'secret' }
         });
 
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ username: 'test', password: 'secret' }),
+            body: new URLSearchParams({ username: 'test', password: 'secret' })
         });
     });
 
@@ -86,20 +86,20 @@ describe('restFetch', () => {
         mockFetch.mockResolvedValue({
             ok: true,
             headers: new Headers({ 'content-type': 'application/json' }),
-            json: () => Promise.resolve({}),
+            json: () => Promise.resolve({})
         } as Response);
 
         await restFetch('https://api.example.com', {
-            bearerToken: 'abc123',
+            bearerToken: 'abc123'
         });
 
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: 'Bearer abc123',
+                Authorization: 'Bearer abc123'
             },
-            body: undefined,
+            body: undefined
         });
     });
 
@@ -107,20 +107,20 @@ describe('restFetch', () => {
         mockFetch.mockResolvedValue({
             ok: true,
             headers: new Headers({ 'content-type': 'application/json' }),
-            json: () => Promise.resolve({}),
+            json: () => Promise.resolve({})
         } as Response);
 
         await restFetch('https://api.example.com', {
-            headers: { 'X-Custom': 'value' },
+            headers: { 'X-Custom': 'value' }
         });
 
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Custom': 'value',
+                'X-Custom': 'value'
             },
-            body: undefined,
+            body: undefined
         });
     });
 
@@ -128,14 +128,14 @@ describe('restFetch', () => {
         mockFetch.mockResolvedValue({
             ok: false,
             headers: new Headers({ 'content-type': 'application/json' }),
-            json: () => Promise.resolve({ message: 'Not found' }),
+            json: () => Promise.resolve({ message: 'Not found' })
         } as Response);
 
         const result = await restFetch('https://api.example.com');
 
         expect(result).toEqual({
             data: null,
-            error: { message: 'Not found' },
+            error: { message: 'Not found' }
         });
     });
 
@@ -143,14 +143,14 @@ describe('restFetch', () => {
         mockFetch.mockResolvedValue({
             ok: false,
             headers: new Headers({ 'content-type': 'text/plain' }),
-            text: () => Promise.resolve('Server error'),
+            text: () => Promise.resolve('Server error')
         } as Response);
 
         const result = await restFetch('https://api.example.com');
 
         expect(result).toEqual({
             data: null,
-            error: 'Server error',
+            error: 'Server error'
         });
     });
 
@@ -158,14 +158,14 @@ describe('restFetch', () => {
         mockFetch.mockResolvedValue({
             ok: true,
             headers: new Headers({ 'content-type': 'text/plain' }),
-            text: () => Promise.resolve('Success message'),
+            text: () => Promise.resolve('Success message')
         } as Response);
 
         const result = await restFetch('https://api.example.com');
 
         expect(result).toEqual({
             data: 'Success message',
-            error: null,
+            error: null
         });
     });
 
@@ -173,11 +173,11 @@ describe('restFetch', () => {
         const customFetch = vi.fn().mockResolvedValue({
             ok: true,
             headers: new Headers({ 'content-type': 'application/json' }),
-            json: () => Promise.resolve({ custom: true }),
+            json: () => Promise.resolve({ custom: true })
         } as Response);
 
         await restFetch('https://api.example.com', {
-            global: { fetch: customFetch },
+            global: { fetch: customFetch }
         });
 
         expect(customFetch).toHaveBeenCalled();

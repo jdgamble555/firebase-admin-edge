@@ -70,7 +70,7 @@ const state = url.searchParams.get('state');
 const { error } = await firebaseServer.signInWithCode(
     code,
     redirect_uri,
-    state,
+    state
 );
 ```
 

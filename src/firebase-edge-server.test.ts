@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import {
     createFirebaseEdgeServer,
-    OFFICIAL_FIREBASE_OAUTH_PROVIDERS,
+    OFFICIAL_FIREBASE_OAUTH_PROVIDERS
 } from './firebase-edge-server.js';
 import type { ServiceAccount, FirebaseConfig } from './auth/firebase-types.js';
 
@@ -23,7 +23,7 @@ const mockServiceAccount: ServiceAccount = {
     token_uri: 'https://oauth2.googleapis.com/token',
     auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
     client_x509_cert_url:
-        'https://www.googleapis.com/robot/v1/metadata/x509/test%40test-project.iam.gserviceaccount.com',
+        'https://www.googleapis.com/robot/v1/metadata/x509/test%40test-project.iam.gserviceaccount.com'
 };
 
 const mockFirebaseConfig: FirebaseConfig = {
@@ -32,18 +32,18 @@ const mockFirebaseConfig: FirebaseConfig = {
     projectId: 'test-project',
     storageBucket: 'test-project.appspot.com',
     messagingSenderId: '123456789',
-    appId: 'test-app-id',
+    appId: 'test-app-id'
 };
 
 const mockProviders = {
     google: {
         client_id: 'google-client-id',
-        client_secret: 'google-client-secret',
+        client_secret: 'google-client-secret'
     },
     github: {
         client_id: 'github-client-id',
-        client_secret: 'github-client-secret',
-    },
+        client_secret: 'github-client-secret'
+    }
 };
 
 describe('createFirebaseEdgeServer', () => {
@@ -62,8 +62,8 @@ describe('createFirebaseEdgeServer', () => {
             providers: mockProviders,
             cookies: {
                 getSession: mockGetSession,
-                saveSession: mockSaveSession,
-            },
+                saveSession: mockSaveSession
+            }
         });
     });
 
@@ -87,8 +87,8 @@ describe('createFirebaseEdgeServer', () => {
                 cookies: {
                     getSession: mockGetSession,
                     saveSession: mockSaveSession,
-                    sessionName: 'custom-session',
-                },
+                    sessionName: 'custom-session'
+                }
             });
 
             customServer.signOut();
@@ -96,7 +96,7 @@ describe('createFirebaseEdgeServer', () => {
             expect(mockSaveSession).toHaveBeenCalledWith(
                 'custom-session',
                 '',
-                expect.objectContaining({ maxAge: 0 }),
+                expect.objectContaining({ maxAge: 0 })
             );
         });
 
@@ -106,7 +106,7 @@ describe('createFirebaseEdgeServer', () => {
             expect(mockSaveSession).toHaveBeenCalledWith(
                 '__session',
                 '',
-                expect.objectContaining({ maxAge: 0 }),
+                expect.objectContaining({ maxAge: 0 })
             );
         });
 
@@ -118,9 +118,9 @@ describe('createFirebaseEdgeServer', () => {
                 providers: mockProviders,
                 cookies: {
                     getSession: mockGetSession,
-                    saveSession: mockSaveSession,
+                    saveSession: mockSaveSession
                 },
-                fetch: mockFetch,
+                fetch: mockFetch
             });
 
             expect(customServer).toBeDefined();
@@ -136,7 +136,7 @@ describe('createFirebaseEdgeServer', () => {
                 secure: true,
                 sameSite: 'lax',
                 path: '/',
-                maxAge: 0,
+                maxAge: 0
             });
         });
     });
@@ -149,7 +149,7 @@ describe('createFirebaseEdgeServer', () => {
 
             expect(result).toEqual({
                 data: null,
-                error: null,
+                error: null
             });
             expect(mockGetSession).toHaveBeenCalledWith('__session');
         });
@@ -163,15 +163,15 @@ describe('createFirebaseEdgeServer', () => {
                 providers: {},
                 cookies: {
                     getSession: mockGetSession,
-                    saveSession: mockSaveSession,
-                },
+                    saveSession: mockSaveSession
+                }
             });
 
             await expect(
                 serverWithoutGoogle.getGoogleLoginURL(
                     'http://localhost',
-                    '/dashboard',
-                ),
+                    '/dashboard'
+                )
             ).rejects.toThrow('Google provider not configured');
         });
 
@@ -180,7 +180,7 @@ describe('createFirebaseEdgeServer', () => {
                 './auth/google-oauth.js'
             );
             vi.mocked(createGoogleOAuthLoginUrl).mockReturnValue(
-                'http://oauth-url',
+                'http://oauth-url'
             );
 
             await server.getGoogleLoginURL('http://localhost', '/dashboard');
@@ -188,7 +188,7 @@ describe('createFirebaseEdgeServer', () => {
             expect(mockSaveSession).toHaveBeenCalledWith(
                 '__session',
                 '',
-                expect.objectContaining({ maxAge: 0 }),
+                expect.objectContaining({ maxAge: 0 })
             );
         });
     });
@@ -201,15 +201,15 @@ describe('createFirebaseEdgeServer', () => {
                 providers: {},
                 cookies: {
                     getSession: mockGetSession,
-                    saveSession: mockSaveSession,
-                },
+                    saveSession: mockSaveSession
+                }
             });
 
             await expect(
                 serverWithoutGitHub.getGitHubLoginURL(
                     'http://localhost',
-                    '/dashboard',
-                ),
+                    '/dashboard'
+                )
             ).rejects.toThrow('GitHub provider not configured');
         });
 
@@ -218,7 +218,7 @@ describe('createFirebaseEdgeServer', () => {
                 './auth/github-oauth.js'
             );
             vi.mocked(createGitHubOAuthLoginUrl).mockReturnValue(
-                'http://github-oauth-url',
+                'http://github-oauth-url'
             );
 
             await server.getGitHubLoginURL('http://localhost', '/dashboard');
@@ -226,7 +226,7 @@ describe('createFirebaseEdgeServer', () => {
             expect(mockSaveSession).toHaveBeenCalledWith(
                 '__session',
                 '',
-                expect.objectContaining({ maxAge: 0 }),
+                expect.objectContaining({ maxAge: 0 })
             );
         });
     });
@@ -236,15 +236,15 @@ describe('createFirebaseEdgeServer', () => {
             const result = await server.signInWithCode(
                 'auth-code',
                 'http://localhost',
-                null,
+                null
             );
 
             expect(result).toEqual({
-                error: expect.any(Error),
+                error: expect.any(Error)
             });
             expect(result.error).toBeInstanceOf(Error);
             expect((result.error as Error).message).toBe(
-                'No provider specified in state',
+                'No provider specified in state'
             );
         });
 
@@ -254,8 +254,8 @@ describe('createFirebaseEdgeServer', () => {
                 server.signInWithCode(
                     'auth-code',
                     'http://localhost',
-                    'invalid-json',
-                ),
+                    'invalid-json'
+                )
             ).rejects.toThrow();
         });
     });
@@ -268,7 +268,7 @@ describe('createFirebaseEdgeServer', () => {
 
             expect(result).toEqual({
                 data: null,
-                error: null,
+                error: null
             });
         });
     });
@@ -283,7 +283,7 @@ describe('createFirebaseEdgeServer', () => {
                 'github',
                 'microsoft',
                 'yahoo',
-                'playgames',
+                'playgames'
             ]);
         });
     });

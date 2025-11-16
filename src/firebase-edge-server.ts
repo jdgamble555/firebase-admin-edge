@@ -1,7 +1,7 @@
 import type {
     CookieOptions,
     GetSession,
-    SetSession,
+    SetSession
 } from './auth/cookie-types.js';
 import { FirebaseAdminAuth } from './auth/firebase-admin-auth.js';
 import { FirebaseAuth } from './auth/firebase-auth.js';
@@ -9,11 +9,11 @@ import { signJWTCustomToken } from './auth/firebase-jwt.js';
 import type { FirebaseConfig, ServiceAccount } from './auth/firebase-types.js';
 import {
     createGitHubOAuthLoginUrl,
-    exchangeCodeForGitHubIdToken,
+    exchangeCodeForGitHubIdToken
 } from './auth/github-oauth.js';
 import {
     createGoogleOAuthLoginUrl,
-    exchangeCodeForGoogleIdToken,
+    exchangeCodeForGoogleIdToken
 } from './auth/google-oauth.js';
 
 const DEFAULT_SESSION_NAME = '__session';
@@ -23,7 +23,7 @@ const COOKIE_OPTIONS = {
     secure: true,
     sameSite: 'lax',
     path: '/',
-    maxAge: 60 * 60 * 24 * 5 * 1000,
+    maxAge: 60 * 60 * 24 * 5 * 1000
 } as CookieOptions;
 
 /**
@@ -37,7 +37,7 @@ export const OFFICIAL_FIREBASE_OAUTH_PROVIDERS = [
     'github',
     'microsoft',
     'yahoo',
-    'playgames',
+    'playgames'
 ] as const;
 
 type ProviderList = (typeof OFFICIAL_FIREBASE_OAUTH_PROVIDERS)[number];
@@ -74,7 +74,7 @@ export function createFirebaseEdgeServer({
     firebaseConfig,
     providers,
     cookies,
-    fetch,
+    fetch
 }: {
     serviceAccount: ServiceAccount;
     firebaseConfig: FirebaseConfig;
@@ -98,7 +98,7 @@ export function createFirebaseEdgeServer({
     function deleteSession() {
         saveSession(sessionName, '', {
             ...COOKIE_OPTIONS,
-            maxAge: 0,
+            maxAge: 0
         });
     }
 
@@ -123,7 +123,7 @@ export function createFirebaseEdgeServer({
         if (!sessionCookie) {
             return {
                 data: null,
-                error: null,
+                error: null
             };
         }
 
@@ -135,7 +135,7 @@ export function createFirebaseEdgeServer({
 
             return {
                 data: null,
-                error: verifyError,
+                error: verifyError
             };
         }
 
@@ -144,13 +144,13 @@ export function createFirebaseEdgeServer({
 
             return {
                 data: null,
-                error: null,
+                error: null
             };
         }
 
         return {
             data: decodedToken,
-            error: null,
+            error: null
         };
     }
 
@@ -205,13 +205,13 @@ export function createFirebaseEdgeServer({
     async function signInWithCode(
         code: string,
         redirect_uri: string,
-        state: string | null = null,
+        state: string | null = null
     ) {
         const provider = state ? JSON.parse(state).provider : null;
 
         if (!provider) {
             return {
-                error: new Error('No provider specified in state'),
+                error: new Error('No provider specified in state')
             };
         }
 
@@ -226,18 +226,18 @@ export function createFirebaseEdgeServer({
                     redirect_uri,
                     client_id,
                     client_secret,
-                    fetchImpl,
+                    fetchImpl
                 );
 
             if (exchangeError) {
                 return {
-                    error: exchangeError,
+                    error: exchangeError
                 };
             }
 
             if (!googleData) {
                 return {
-                    error: new Error('No exchange data!'),
+                    error: new Error('No exchange data!')
                 };
             }
 
@@ -251,18 +251,18 @@ export function createFirebaseEdgeServer({
                     redirect_uri,
                     client_id,
                     client_secret,
-                    fetchImpl,
+                    fetchImpl
                 );
 
             if (exchangeError) {
                 return {
-                    error: exchangeError,
+                    error: exchangeError
                 };
             }
 
             if (!githubData) {
                 return {
-                    error: new Error('No exchange data!'),
+                    error: new Error('No exchange data!')
                 };
             }
 
@@ -271,7 +271,7 @@ export function createFirebaseEdgeServer({
 
         if (!oauthToken) {
             return {
-                error: new Error('No OAuth token obtained'),
+                error: new Error('No OAuth token obtained')
             };
         }
 
@@ -280,39 +280,37 @@ export function createFirebaseEdgeServer({
 
         if (signInError) {
             return {
-                data: null,
-                error: signInError,
+                error: signInError
             };
         }
 
         if (!signInData) {
             return {
-                data: null,
-                error: null,
+                error: null
             };
         }
 
         const { data: sessionCookie, error: sessionError } =
             await adminAuth.createSessionCookie(signInData.idToken, {
-                expiresIn: 60 * 60 * 24 * 5 * 1000,
+                expiresIn: 60 * 60 * 24 * 5 * 1000
             });
 
         if (sessionError) {
             return {
-                error: sessionError,
+                error: sessionError
             };
         }
 
         if (!sessionCookie) {
             return {
-                error: new Error('No session cookie returned'),
+                error: new Error('No session cookie returned')
             };
         }
 
         saveSession(sessionName, sessionCookie, COOKIE_OPTIONS);
 
         return {
-            error: null,
+            error: null
         };
     }
 
@@ -327,14 +325,14 @@ export function createFirebaseEdgeServer({
         if (verifyError) {
             return {
                 data: null,
-                error: verifyError,
+                error: verifyError
             };
         }
 
         if (!verifiedToken) {
             return {
                 data: null,
-                error: null,
+                error: null
             };
         }
 
@@ -344,14 +342,14 @@ export function createFirebaseEdgeServer({
         if (signJWTError) {
             return {
                 data: null,
-                error: signJWTError,
+                error: signJWTError
             };
         }
 
         if (!signJWTData) {
             return {
                 data: null,
-                error: new Error('No custom token signed'),
+                error: new Error('No custom token signed')
             };
         }
 
@@ -361,20 +359,20 @@ export function createFirebaseEdgeServer({
         if (signInError) {
             return {
                 data: null,
-                error: signInError,
+                error: signInError
             };
         }
 
         if (!signInData) {
             return {
                 data: null,
-                error: null,
+                error: null
             };
         }
 
         return {
             data: signInData,
-            error: null,
+            error: null
         };
     }
 
@@ -386,6 +384,6 @@ export function createFirebaseEdgeServer({
         getGoogleLoginURL,
         getGitHubLoginURL,
         signInWithCode,
-        getToken,
+        getToken
     };
 }

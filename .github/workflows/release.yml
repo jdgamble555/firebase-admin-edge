@@ -31,3 +31,5 @@ jobs:
                   publish: npm publish --provenance --access public
                   commit: 'chore: version packages'
                   title: 'chore: version packages'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

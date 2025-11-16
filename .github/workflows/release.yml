@@ -31,7 +31,7 @@ jobs:
             - name: Create Release Pull Request or Publish
               uses: changesets/action@v1
               with:
-                  publish: changeset publish
+                  publish: npx changeset publish
                   commit: 'chore: version packages'
                   title: 'chore: version packages'
               env:

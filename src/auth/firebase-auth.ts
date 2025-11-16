@@ -4,6 +4,7 @@ import {
 } from './firebase-auth-endpoints.js';
 import type { FirebaseConfig } from './firebase-types.js';
 
+
 export class FirebaseAuth {
     constructor(
         private firebase_config: FirebaseConfig,

@@ -3,10 +3,9 @@
 Use Firebase Admin on the edge:
 
 - Vercel Edge
-- Vercel Bun
 - Cloudflare
-- Netlify
-- Deno
+- Deno (Netlify Edge)
+- Bun (Vercel Bun)
 - Node.js
 
 Uses Rest API under the hood and has no side effects.

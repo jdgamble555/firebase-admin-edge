@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.14
+
+### Patch Changes
+
+- fea59ea: fix provider id
+
 ## 1.0.13
 
 ### Patch Changes

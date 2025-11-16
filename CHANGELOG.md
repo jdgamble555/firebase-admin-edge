@@ -4,6 +4,12 @@
 
 ### Patch Changes
 
+- 6206bb1: Add docs
+
+## 1.0.6
+
+### Patch Changes
+
 - d6d9fd3: fix provider types
 
 ## 1.0.5

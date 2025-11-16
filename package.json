@@ -1,6 +1,6 @@
 {
     "name": "firebase-admin-edge",
-    "version": "1.0.6",
+    "version": "1.0.4",
     "description": "A demo package for Total TypeScript",
     "keywords": [
         "demo",
@@ -39,11 +39,6 @@
         "dev": "vitest",
         "clean": "rimraf dist",
         "local-release": "changeset version && changeset publish",
-        "release:publish": "changeset publish",
         "prepublishOnly": "npm run ci"
-    },
-    "publishConfig": {
-        "provenance": true,
-        "access": "public"
     }
 }

@@ -123,12 +123,11 @@ export function createFirebaseEdgeServer({
     }
 
     async function getGoogleLoginURL(redirect_uri: string, path: string) {
+        
         deleteSession();
 
         if (!providers.google) {
-            return {
-                error: new Error('Google provider not configured'),
-            };
+            throw new Error('Google provider not configured');
         }
 
         const { client_id } = providers.google;
@@ -148,14 +147,16 @@ export function createFirebaseEdgeServer({
 
         const { client_id, client_secret } = providers.google;
 
-        const { data: exchangeData, error: exchangeError } =
-            await exchangeCodeForGoogleIdToken(
-                code,
-                redirect_uri,
-                client_id,
-                client_secret,
-                fetchImpl,
-            );
+        const {
+            data: exchangeData,
+            error: exchangeError
+        } = await exchangeCodeForGoogleIdToken(
+            code,
+            redirect_uri,
+            client_id,
+            client_secret,
+            fetchImpl,
+        );
 
         if (exchangeError) {
             return {

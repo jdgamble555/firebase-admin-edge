@@ -8,6 +8,10 @@ import { FirebaseAuth } from './auth/firebase-auth.js';
 import { signJWTCustomToken } from './auth/firebase-jwt.js';
 import type { FirebaseConfig, ServiceAccount } from './auth/firebase-types.js';
 import {
+    createGitHubOAuthLoginUrl,
+    exchangeCodeForGitHubIdToken,
+} from './auth/github-oauth.js';
+import {
     createGoogleOAuthLoginUrl,
     exchangeCodeForGoogleIdToken,
 } from './auth/google-oauth.js';
@@ -23,11 +27,9 @@ const COOKIE_OPTIONS = {
 } as CookieOptions;
 
 /**
- * Official Firebase OAuth providers supported by Firebase Auth
- * @constant
- * @type {readonly string[]}
+ * Official Firebase OAuth providers
  */
-export const OFFICIAL_FIREBASE_OAUTH_PROVIDERS: readonly string[] = [
+export const OFFICIAL_FIREBASE_OAUTH_PROVIDERS = [
     'google',
     'facebook',
     'apple',
@@ -57,60 +59,15 @@ type CookieConfig = {
 };
 
 /**
- * Creates a Firebase Edge Server instance with authentication and session management capabilities.
+ * Creates a Firebase Edge Server for authentication and session management in edge environments.
  *
- * This function sets up a complete Firebase authentication system that works in edge environments
- * like Cloudflare Workers, Vercel Edge Functions, and other serverless platforms.
- *
- * @param config - Configuration object for the Firebase Edge Server
- * @param config.serviceAccount - Firebase service account credentials for admin operations
- * @param config.firebaseConfig - Firebase project configuration (apiKey, authDomain, etc.)
- * @param config.providers - OAuth provider configurations (Google, Facebook, etc.)
- * @param config.cookies - Cookie management configuration for session handling
- * @param config.fetch - Optional custom fetch implementation (defaults to globalThis.fetch)
- *
- * @returns Object containing authentication methods and utilities
- *
- * @example
- * ```typescript
- * const server = createFirebaseEdgeServer({
- *   serviceAccount: {
- *     type: "service_account",
- *     project_id: "your-project-id",
- *     private_key_id: "...",
- *     private_key: "...",
- *     client_email: "...",
- *     client_id: "...",
- *     auth_uri: "...",
- *     token_uri: "...",
- *     auth_provider_x509_cert_url: "...",
- *     client_x509_cert_url: "..."
- *   },
- *   firebaseConfig: {
- *     apiKey: "your-api-key",
- *     authDomain: "your-project.firebaseapp.com",
- *     projectId: "your-project-id"
- *   },
- *   providers: {
- *     google: {
- *       client_id: "your-google-client-id",
- *       client_secret: "your-google-client-secret"
- *     }
- *   },
- *   cookies: {
- *     getSession: (name) => getCookie(name),
- *     saveSession: (name, value, options) => setCookie(name, value, options)
- *   }
- * });
- *
- * // Using guard clauses for clean error handling
- * const { data: user, error } = await server.getUser();
- * if (error) return handleError(error);
- * if (!user) return redirectToLogin();
- *
- * // User is authenticated, proceed with protected logic
- * console.log('Authenticated user:', user.email);
- * ```
+ * @param config Configuration object
+ * @param config.serviceAccount Firebase service account for admin operations
+ * @param config.firebaseConfig Firebase client configuration
+ * @param config.providers OAuth provider configurations (Google, GitHub, etc.)
+ * @param config.cookies Cookie management functions
+ * @param config.fetch Optional custom fetch implementation
+ * @returns Object with authentication methods
  */
 export function createFirebaseEdgeServer({
     serviceAccount,
@@ -135,11 +92,7 @@ export function createFirebaseEdgeServer({
     const adminAuth = new FirebaseAdminAuth(serviceAccount, fetchImpl);
 
     /**
-     * Deletes the current user session by clearing the session cookie.
-     *
-     * This is an internal helper function used by signOut and error handlers to ensure
-     * clean session management when authentication fails or users sign out.
-     *
+     * Clears the session cookie
      * @internal
      */
     function deleteSession() {
@@ -150,20 +103,8 @@ export function createFirebaseEdgeServer({
     }
 
     /**
-     * Signs out the current user by deleting their session cookie.
-     *
-     * This method only removes the local session and does not revoke the user's Firebase tokens.
-     * For complete logout, consider also calling Firebase client-side signOut if needed.
-     *
-     * @example
-     * ```typescript
-     * // Simple sign out
-     * server.signOut();
-     *
-     * // With redirect after sign out
-     * server.signOut();
-     * return redirect('/login');
-     * ```
+     * Signs out the current user by clearing the session cookie.
+     * Note: This only removes the server-side session, not Firebase client tokens.
      */
     function signOut() {
         deleteSession();
@@ -171,37 +112,10 @@ export function createFirebaseEdgeServer({
     }
 
     /**
-     * Retrieves the current authenticated user's information from their session.
+     * Gets the current authenticated user from the session cookie.
      *
-     * Validates the session cookie and returns the decoded user token. If the session
-     * is invalid or expired, automatically cleans up the session cookie.
-     *
-     * @param checkRevoked - Whether to check if the user's token has been revoked (default: false)
-     * @returns Promise resolving to user data and error information
-     *
-     * @example
-     * ```typescript
-     * // Using guard clauses for clean error handling
-     * const { data: user, error } = await server.getUser();
-     * if (error) {
-     *   console.error('Authentication error:', error);
-     *   return redirect('/login');
-     * }
-     *
-     * if (!user) {
-     *   console.log('No user session found');
-     *   return redirect('/login');
-     * }
-     *
-     * // User is authenticated, proceed safely
-     * console.log('User ID:', user.sub);
-     * console.log('Email:', user.email);
-     * console.log('Email verified:', user.email_verified);
-     *
-     * // Check for revoked tokens in sensitive operations
-     * const { data: verifiedUser, error: revokeError } = await server.getUser(true);
-     * if (revokeError) return handleRevokedToken();
-     * ```
+     * @param checkRevoked Whether to check if the token has been revoked
+     * @returns Promise with user data and error
      */
     async function getUser(checkRevoked: boolean = false) {
         const sessionCookie = await getSession(sessionName);
@@ -241,45 +155,12 @@ export function createFirebaseEdgeServer({
     }
 
     /**
-     * Generates a Google OAuth login URL for user authentication.
+     * Generates a Google OAuth login URL and clears any existing session.
      *
-     * Automatically clears any existing session before generating the URL to ensure
-     * a clean authentication flow. The generated URL will redirect users to Google's
-     * OAuth consent screen.
-     *
-     * @param redirect_uri - The URI to redirect to after Google authentication (must be registered in Google Console)
-     * @param path - Additional path parameter for the OAuth flow state management
-     * @returns Promise resolving to the Google OAuth login URL
-     *
-     * @throws {Error} If Google provider is not configured in the providers config
-     *
-     * @example
-     * ```typescript
-     * // Basic usage with guard clause
-     * try {
-     *   const loginUrl = await server.getGoogleLoginURL(
-     *     'https://yourapp.com/auth/callback',
-     *     '/dashboard'
-     *   );
-     *   return redirect(loginUrl);
-     * } catch (error) {
-     *   console.error('Google OAuth not configured:', error);
-     *   return errorResponse('OAuth unavailable');
-     * }
-     *
-     * // In a route handler
-     * export async function GET(request: Request) {
-     *   const url = new URL(request.url);
-     *   const returnTo = url.searchParams.get('returnTo') || '/dashboard';
-     *
-     *   const loginUrl = await server.getGoogleLoginURL(
-     *     `${url.origin}/auth/callback`,
-     *     returnTo
-     *   );
-     *
-     *   return redirect(loginUrl);
-     * }
-     * ```
+     * @param redirect_uri OAuth redirect URI
+     * @param path State parameter for the OAuth flow
+     * @returns Google OAuth login URL
+     * @throws Error if Google provider not configured
      */
     async function getGoogleLoginURL(redirect_uri: string, path: string) {
         deleteSession();
@@ -294,90 +175,108 @@ export function createFirebaseEdgeServer({
     }
 
     /**
-     * Completes Google OAuth authentication by exchanging an authorization code for a session.
+     * Generates a GitHub OAuth login URL and clears any existing session.
      *
-     * This method should be called in your OAuth callback handler to complete the authentication
-     * flow initiated by getGoogleLoginURL. It exchanges the authorization code for tokens,
-     * creates a Firebase session, and sets the session cookie.
-     *
-     * @param code - The authorization code received from Google OAuth callback
-     * @param redirect_uri - The redirect URI used in the OAuth flow (must match the one used in getGoogleLoginURL)
-     * @returns Promise resolving to success/error information
-     *
-     * @example
-     * ```typescript
-     * // In your OAuth callback handler with guard clauses
-     * export async function GET(request: Request) {
-     *   const url = new URL(request.url);
-     *   const code = url.searchParams.get('code');
-     *   const state = url.searchParams.get('state');
-     *
-     *   // Guard clauses for validation
-     *   if (!code) {
-     *     console.error('No authorization code received');
-     *     return redirect('/login?error=no_code');
-     *   }
-     *
-     *   const { error } = await server.signInWithGoogleWithCode(
-     *     code,
-     *     `${url.origin}/auth/callback`
-     *   );
-     *
-     *   if (error) {
-     *     console.error('Sign in failed:', error.message);
-     *     return redirect('/login?error=auth_failed');
-     *   }
-     *
-     *   // Success - redirect to protected area
-     *   const redirectTo = state || '/dashboard';
-     *   return redirect(redirectTo);
-     * }
-     *
-     * // Error handling with specific error types
-     * const { error } = await server.signInWithGoogleWithCode(code, redirectUri);
-     * if (error?.message.includes('provider not configured')) {
-     *   return handleConfigError();
-     * }
-     * if (error?.message.includes('invalid_grant')) {
-     *   return handleExpiredCode();
-     * }
-     * ```
+     * @param redirect_uri OAuth redirect URI
+     * @param path State parameter for the OAuth flow
+     * @returns GitHub OAuth login URL
+     * @throws Error if GitHub provider not configured
      */
-    async function signInWithGoogleWithCode(
+    async function getGitHubLoginURL(redirect_uri: string, path: string) {
+        deleteSession();
+
+        if (!providers.github) {
+            throw new Error('GitHub provider not configured');
+        }
+
+        const { client_id } = providers.github;
+
+        return createGitHubOAuthLoginUrl(redirect_uri, path, client_id);
+    }
+
+    /**
+     * Completes OAuth flow by exchanging authorization code for a session.
+     *
+     * @param code Authorization code from OAuth provider
+     * @param redirect_uri OAuth redirect URI (must match login URL)
+     * @param state OAuth state containing provider information
+     * @returns Promise with error information
+     */
+    async function signInWithCode(
         code: string,
         redirect_uri: string,
+        state: string | null = null,
     ) {
-        if (!providers.google) {
+        const provider = state ? JSON.parse(state).provider : null;
+
+        if (!provider) {
             return {
-                error: new Error('Google provider not configured'),
+                error: new Error('No provider specified in state'),
             };
         }
 
-        const { client_id, client_secret } = providers.google;
+        let oauthToken: string | null = null;
 
-        const { data: exchangeData, error: exchangeError } =
-            await exchangeCodeForGoogleIdToken(
-                code,
-                redirect_uri,
-                client_id,
-                client_secret,
-                fetchImpl,
-            );
+        if (providers.google && provider === 'google') {
+            const { client_id, client_secret } = providers.google;
 
-        if (exchangeError) {
-            return {
-                error: exchangeError,
-            };
+            const { data: googleData, error: exchangeError } =
+                await exchangeCodeForGoogleIdToken(
+                    code,
+                    redirect_uri,
+                    client_id,
+                    client_secret,
+                    fetchImpl,
+                );
+
+            if (exchangeError) {
+                return {
+                    error: exchangeError,
+                };
+            }
+
+            if (!googleData) {
+                return {
+                    error: new Error('No exchange data!'),
+                };
+            }
+
+            oauthToken = googleData.id_token;
+        } else if (providers.github && provider === 'github') {
+            const { client_id, client_secret } = providers.github;
+
+            const { data: githubData, error: exchangeError } =
+                await exchangeCodeForGitHubIdToken(
+                    code,
+                    redirect_uri,
+                    client_id,
+                    client_secret,
+                    fetchImpl,
+                );
+
+            if (exchangeError) {
+                return {
+                    error: exchangeError,
+                };
+            }
+
+            if (!githubData) {
+                return {
+                    error: new Error('No exchange data!'),
+                };
+            }
+
+            oauthToken = githubData.access_token;
         }
 
-        if (!exchangeData) {
+        if (!oauthToken) {
             return {
-                error: new Error('No exchange data!'),
+                error: new Error('No OAuth token obtained'),
             };
         }
 
         const { data: signInData, error: signInError } =
-            await auth.signInWithProvider(exchangeData.id_token, redirect_uri);
+            await auth.signInWithProvider(oauthToken, redirect_uri);
 
         if (signInError) {
             return {
@@ -418,46 +317,9 @@ export function createFirebaseEdgeServer({
     }
 
     /**
-     * Generates a fresh Firebase access token for the currently authenticated user.
+     * Generates fresh Firebase client tokens for the authenticated user.
      *
-     * This method creates new Firebase client tokens that can be used for authenticated
-     * requests to Firebase services from the client-side. The tokens are generated using
-     * the user's server-side session.
-     *
-     * @returns Promise resolving to token data (accessToken, refreshToken, etc.) and error information
-     *
-     * @example
-     * ```typescript
-     * // Using guard clauses for clean token handling
-     * const { data: tokenData, error } = await server.getToken();
-     * if (error) {
-     *   console.error('Token generation failed:', error.message);
-     *   return redirect('/login');
-     * }
-     *
-     * if (!tokenData) {
-     *   console.log('No user session for token generation');
-     *   return redirect('/login');
-     * }
-     *
-     * // Tokens are ready for client use
-     * const response = {
-     *   accessToken: tokenData.accessToken,
-     *   refreshToken: tokenData.refreshToken,
-     *   expiresIn: tokenData.expiresIn
-     * };
-     *
-     * return json(response);
-     *
-     * // Using tokens for Firebase client initialization
-     * const auth = getAuth(app);
-     * await signInWithCustomToken(auth, tokenData.accessToken);
-     *
-     * // Guard against token refresh failures
-     * if (tokenData.expiresIn < 300) { // Less than 5 minutes
-     *   console.warn('Token expires soon, consider refreshing');
-     * }
-     * ```
+     * @returns Promise with token data and error
      */
     async function getToken() {
         const { data: verifiedToken, error: verifyError } = await getUser();
@@ -516,25 +378,14 @@ export function createFirebaseEdgeServer({
         };
     }
 
-    /**
-     * Returns the complete Firebase Edge Server API with all authentication methods.
-     *
-     * @returns Object containing:
-     * - `auth`: Firebase Auth instance for client-side operations
-     * - `adminAuth`: Firebase Admin Auth instance for server-side operations
-     * - `signOut`: Function to sign out the current user
-     * - `getUser`: Function to get current user information with optional revocation checking
-     * - `getGoogleLoginURL`: Function to generate Google OAuth login URL
-     * - `signInWithGoogleWithCode`: Function to complete Google OAuth flow
-     * - `getToken`: Function to get fresh Firebase tokens for client-side usage
-     */
     return {
         auth,
         adminAuth,
         signOut,
         getUser,
         getGoogleLoginURL,
-        signInWithGoogleWithCode,
+        getGitHubLoginURL,
+        signInWithCode,
         getToken,
     };
 }

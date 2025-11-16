@@ -1,0 +1,7 @@
+- npx changeset
+- npm run format
+- git add .
+- git commit -m 'something'
+- git push
+- ... wait
+- git pull

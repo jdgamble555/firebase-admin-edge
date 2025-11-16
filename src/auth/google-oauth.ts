@@ -22,6 +22,7 @@ export function createGoogleOAuthLoginUrl(
                 prompt: 'consent',
                 state: JSON.stringify({
                     next: path,
+                    provider: 'google',
                 }),
             }).toString(),
     ).toString();

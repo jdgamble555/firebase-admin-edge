@@ -42,6 +42,7 @@ describe('createGoogleOAuthLoginUrl', () => {
         expect(parsed.searchParams.get('prompt')).toBe('consent');
         expect(JSON.parse(parsed.searchParams.get('state') ?? '')).toEqual({
             next: '/next/path',
+            provider: 'google',
         });
     });
 });

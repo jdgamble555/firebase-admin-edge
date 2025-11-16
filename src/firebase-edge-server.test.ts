@@ -10,6 +10,7 @@ vi.mock('./auth/firebase-admin-auth.js');
 vi.mock('./auth/firebase-auth.js');
 vi.mock('./auth/firebase-jwt.js');
 vi.mock('./auth/google-oauth.js');
+vi.mock('./auth/github-oauth.js');
 
 const mockServiceAccount: ServiceAccount = {
     type: 'service_account',
@@ -39,29 +40,23 @@ const mockProviders = {
         client_id: 'google-client-id',
         client_secret: 'google-client-secret',
     },
-    facebook: { client_id: 'fb-id', client_secret: 'fb-secret' },
-    apple: { client_id: 'apple-id', client_secret: 'apple-secret' },
-    twitter: { client_id: 'twitter-id', client_secret: 'twitter-secret' },
-    github: { client_id: 'github-id', client_secret: 'github-secret' },
-    microsoft: { client_id: 'ms-id', client_secret: 'ms-secret' },
-    yahoo: { client_id: 'yahoo-id', client_secret: 'yahoo-secret' },
-    playgames: { client_id: 'pg-id', client_secret: 'pg-secret' },
+    github: {
+        client_id: 'github-client-id',
+        client_secret: 'github-client-secret',
+    },
 };
 
 describe('createFirebaseEdgeServer', () => {
     let mockGetSession: Mock;
     let mockSaveSession: Mock;
-    let mockFetch: Mock;
+    let server: ReturnType<typeof createFirebaseEdgeServer>;
 
     beforeEach(() => {
         vi.clearAllMocks();
         mockGetSession = vi.fn();
         mockSaveSession = vi.fn();
-        mockFetch = vi.fn();
-    });
 
-    it('should create server with all required methods', () => {
-        const server = createFirebaseEdgeServer({
+        server = createFirebaseEdgeServer({
             serviceAccount: mockServiceAccount,
             firebaseConfig: mockFirebaseConfig,
             providers: mockProviders,
@@ -70,75 +65,54 @@ describe('createFirebaseEdgeServer', () => {
                 saveSession: mockSaveSession,
             },
         });
-
-        expect(server).toHaveProperty('auth');
-        expect(server).toHaveProperty('adminAuth');
-        expect(server).toHaveProperty('signOut');
-        expect(server).toHaveProperty('getUser');
-        expect(server).toHaveProperty('getGoogleLoginURL');
-        expect(server).toHaveProperty('signInWithGoogleWithCode');
-        expect(server).toHaveProperty('getToken');
     });
 
-    it('should use custom session name when provided', () => {
-        const server = createFirebaseEdgeServer({
-            serviceAccount: mockServiceAccount,
-            firebaseConfig: mockFirebaseConfig,
-            providers: mockProviders,
-            cookies: {
-                getSession: mockGetSession,
-                saveSession: mockSaveSession,
-                sessionName: 'custom-session',
-            },
+    describe('factory function', () => {
+        it('creates server with all required methods', () => {
+            expect(server).toHaveProperty('auth');
+            expect(server).toHaveProperty('adminAuth');
+            expect(server).toHaveProperty('signOut');
+            expect(server).toHaveProperty('getUser');
+            expect(server).toHaveProperty('getGoogleLoginURL');
+            expect(server).toHaveProperty('getGitHubLoginURL');
+            expect(server).toHaveProperty('signInWithWithCode');
+            expect(server).toHaveProperty('getToken');
         });
 
-        server.signOut();
+        it('uses custom session name when provided', () => {
+            const customServer = createFirebaseEdgeServer({
+                serviceAccount: mockServiceAccount,
+                firebaseConfig: mockFirebaseConfig,
+                providers: mockProviders,
+                cookies: {
+                    getSession: mockGetSession,
+                    saveSession: mockSaveSession,
+                    sessionName: 'custom-session',
+                },
+            });
 
-        expect(mockSaveSession).toHaveBeenCalledWith(
-            'custom-session',
-            '',
-            expect.objectContaining({ maxAge: 0 }),
-        );
-    });
+            customServer.signOut();
 
-    it('should use default session name "__session"', () => {
-        const server = createFirebaseEdgeServer({
-            serviceAccount: mockServiceAccount,
-            firebaseConfig: mockFirebaseConfig,
-            providers: mockProviders,
-            cookies: {
-                getSession: mockGetSession,
-                saveSession: mockSaveSession,
-            },
+            expect(mockSaveSession).toHaveBeenCalledWith(
+                'custom-session',
+                '',
+                expect.objectContaining({ maxAge: 0 }),
+            );
         });
 
-        server.signOut();
+        it('uses default session name "__session"', () => {
+            server.signOut();
 
-        expect(mockSaveSession).toHaveBeenCalledWith(
-            '__session',
-            '',
-            expect.objectContaining({ maxAge: 0 }),
-        );
-    });
-
-    it('should accept custom fetch function', () => {
-        createFirebaseEdgeServer({
-            serviceAccount: mockServiceAccount,
-            firebaseConfig: mockFirebaseConfig,
-            providers: mockProviders,
-            cookies: {
-                getSession: mockGetSession,
-                saveSession: mockSaveSession,
-            },
-            fetch: mockFetch,
+            expect(mockSaveSession).toHaveBeenCalledWith(
+                '__session',
+                '',
+                expect.objectContaining({ maxAge: 0 }),
+            );
         });
 
-        expect(mockFetch).toBeDefined();
-    });
-
-    describe('signOut', () => {
-        it('should clear session cookie with proper options', () => {
-            const server = createFirebaseEdgeServer({
+        it('accepts custom fetch function', () => {
+            const mockFetch = vi.fn();
+            const customServer = createFirebaseEdgeServer({
                 serviceAccount: mockServiceAccount,
                 firebaseConfig: mockFirebaseConfig,
                 providers: mockProviders,
@@ -146,8 +120,15 @@ describe('createFirebaseEdgeServer', () => {
                     getSession: mockGetSession,
                     saveSession: mockSaveSession,
                 },
+                fetch: mockFetch,
             });
 
+            expect(customServer).toBeDefined();
+        });
+    });
+
+    describe('signOut', () => {
+        it('clears session cookie with proper options', () => {
             server.signOut();
 
             expect(mockSaveSession).toHaveBeenCalledWith('__session', '', {
@@ -161,20 +142,129 @@ describe('createFirebaseEdgeServer', () => {
     });
 
     describe('getUser', () => {
-        it('should return null when no session exists', async () => {
+        it('returns null data when no session exists', async () => {
             mockGetSession.mockResolvedValue(null);
 
-            const server = createFirebaseEdgeServer({
+            const result = await server.getUser();
+
+            expect(result).toEqual({
+                data: null,
+                error: null,
+            });
+            expect(mockGetSession).toHaveBeenCalledWith('__session');
+        });
+    });
+
+    describe('getGoogleLoginURL', () => {
+        it('throws error when Google provider not configured', async () => {
+            const serverWithoutGoogle = createFirebaseEdgeServer({
                 serviceAccount: mockServiceAccount,
                 firebaseConfig: mockFirebaseConfig,
-                providers: mockProviders,
+                providers: {},
                 cookies: {
                     getSession: mockGetSession,
                     saveSession: mockSaveSession,
                 },
             });
 
-            const result = await server.getUser();
+            await expect(
+                serverWithoutGoogle.getGoogleLoginURL(
+                    'http://localhost',
+                    '/dashboard',
+                ),
+            ).rejects.toThrow('Google provider not configured');
+        });
+
+        it('calls deleteSession before generating URL', async () => {
+            const { createGoogleOAuthLoginUrl } = await import(
+                './auth/google-oauth.js'
+            );
+            vi.mocked(createGoogleOAuthLoginUrl).mockReturnValue(
+                'http://oauth-url',
+            );
+
+            await server.getGoogleLoginURL('http://localhost', '/dashboard');
+
+            expect(mockSaveSession).toHaveBeenCalledWith(
+                '__session',
+                '',
+                expect.objectContaining({ maxAge: 0 }),
+            );
+        });
+    });
+
+    describe('getGitHubLoginURL', () => {
+        it('throws error when GitHub provider not configured', async () => {
+            const serverWithoutGitHub = createFirebaseEdgeServer({
+                serviceAccount: mockServiceAccount,
+                firebaseConfig: mockFirebaseConfig,
+                providers: {},
+                cookies: {
+                    getSession: mockGetSession,
+                    saveSession: mockSaveSession,
+                },
+            });
+
+            await expect(
+                serverWithoutGitHub.getGitHubLoginURL(
+                    'http://localhost',
+                    '/dashboard',
+                ),
+            ).rejects.toThrow('GitHub provider not configured');
+        });
+
+        it('calls deleteSession before generating URL', async () => {
+            const { createGitHubOAuthLoginUrl } = await import(
+                './auth/github-oauth.js'
+            );
+            vi.mocked(createGitHubOAuthLoginUrl).mockReturnValue(
+                'http://github-oauth-url',
+            );
+
+            await server.getGitHubLoginURL('http://localhost', '/dashboard');
+
+            expect(mockSaveSession).toHaveBeenCalledWith(
+                '__session',
+                '',
+                expect.objectContaining({ maxAge: 0 }),
+            );
+        });
+    });
+
+    describe('signInWithCode', () => {
+        it('returns error when no provider specified in state', async () => {
+            const result = await server.signInWithCode(
+                'auth-code',
+                'http://localhost',
+                null,
+            );
+
+            expect(result).toEqual({
+                error: expect.any(Error),
+            });
+            expect(result.error).toBeInstanceOf(Error);
+            expect((result.error as Error).message).toBe(
+                'No provider specified in state',
+            );
+        });
+
+        it('handles invalid JSON state gracefully', async () => {
+            // We expect this to throw during JSON.parse, which is the current behavior
+            await expect(
+                server.signInWithCode(
+                    'auth-code',
+                    'http://localhost',
+                    'invalid-json',
+                ),
+            ).rejects.toThrow();
+        });
+    });
+
+    describe('getToken', () => {
+        it('returns null when no verified token', async () => {
+            mockGetSession.mockResolvedValue(null);
+
+            const result = await server.getToken();
 
             expect(result).toEqual({
                 data: null,
@@ -184,7 +274,7 @@ describe('createFirebaseEdgeServer', () => {
     });
 
     describe('OFFICIAL_FIREBASE_OAUTH_PROVIDERS', () => {
-        it('should contain all supported OAuth providers', () => {
+        it('contains all supported OAuth providers', () => {
             expect(OFFICIAL_FIREBASE_OAUTH_PROVIDERS).toEqual([
                 'google',
                 'facebook',

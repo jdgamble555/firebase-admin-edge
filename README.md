@@ -53,35 +53,46 @@ export const firebaseServer = createFirebaseEdgeServer({
 });
 ```
 
-### Get User
+**Get User**
 
 ```ts
 const { data: user } = await firebaseServer.getUser();
 ```
 
-### Login With Google Code
+**Login with Code**
 
 ```ts
-// Currently only supports Google Provider, more coming soon!
+// Currently only supports GitHub and Google login
 
-const { error } = await firebaseServer.signInWithGoogleWithCode(
+const code = url.searchParams.get('code');
+const state = url.searchParams.get('state');
+
+const { error } = await firebaseServer.signInWithCode(
     code,
     redirect_uri,
+    state,
 );
 ```
 
-### Create Google Login URL
+**Create Login URL**
 
 ```ts
-// Normally you need a browser to do this!
+// You don't need a browser with this library!
+
+// path - where you want to redirect to after login
+// redirect_uri - is the oAuth redirect url
 
 const loginUrl = await firebaseServer.getGoogleLoginURL(redirect_uri, path);
+
+// OR
+
+const loginURL = await firebaseServer.getGitHubLoginURL(redirect_uri, path);
 
 // Your framework redirect method
 redirect(302, loginUrl);
 ```
 
-### Logout
+**Logout**
 
 ```ts
 firebaseServer.signOut();

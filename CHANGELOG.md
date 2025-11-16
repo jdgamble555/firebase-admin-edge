@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.13
+
+### Patch Changes
+
+- 9e21372: add accept json header
+
 ## 1.0.12
 
 ### Patch Changes

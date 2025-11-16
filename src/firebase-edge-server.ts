@@ -35,12 +35,14 @@ export const OFFICIAL_FIREBASE_OAUTH_PROVIDERS = [
 
 type ProviderList = (typeof OFFICIAL_FIREBASE_OAUTH_PROVIDERS)[number];
 
-type ProviderConfig = Record<
-    ProviderList,
-    {
-        client_id: string;
-        client_secret: string;
-    }
+type ProviderConfig = Partial<
+    Record<
+        ProviderList,
+        {
+            client_id: string;
+            client_secret: string;
+        }
+    >
 >;
 
 type CookieConfig = {
@@ -123,6 +125,12 @@ export function createFirebaseEdgeServer({
     async function getGoogleLoginURL(redirect_uri: string, path: string) {
         deleteSession();
 
+        if (!providers.google) {
+            return {
+                error: new Error('Google provider not configured'),
+            };
+        }
+
         const { client_id } = providers.google;
 
         return createGoogleOAuthLoginUrl(redirect_uri, path, client_id);
@@ -132,6 +140,12 @@ export function createFirebaseEdgeServer({
         code: string,
         redirect_uri: string,
     ) {
+        if (!providers.google) {
+            return {
+                error: new Error('Google provider not configured'),
+            };
+        }
+
         const { client_id, client_secret } = providers.google;
 
         const { data: exchangeData, error: exchangeError } =

@@ -1,44 +1,44 @@
 name: Changesets Release
 
 on:
-  push:
-    branches:
-      - main
+    push:
+        branches:
+            - main
 
 permissions:
-  contents: write       # needed to push commits & tags
-  pull-requests: write  # needed to create/update the Version Packages PR
+    contents: write # needed to push commits & tags
+    pull-requests: write # needed to create/update the Version Packages PR
 
 jobs:
-  changesets:
-    runs-on: ubuntu-latest
+    changesets:
+        runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # required so changesets can see git history + tags
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0 # required so changesets can see git history + tags
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
 
-      - name: Install dependencies
-        run: npm ci
+            - name: Install dependencies
+              run: npm ci
 
-      - name: Configure git user
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            - name: Configure git user
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Changesets Version PR & Auto Tag
-        uses: changesets/action@v1
-        with:
-          # 1️⃣ When there ARE changesets → bump versions + create/update PR
-          version: npm run changeset:version
+            - name: Changesets Version PR & Auto Tag
+              uses: changesets/action@v1
+              with:
+                  # 1️⃣ When there ARE changesets → bump versions + create/update PR
+                  version: npm run changeset:version
 
-          # 2️⃣ When Version PR IS merged → create & push tag (DO NOT PUBLISH HERE)
-          publish: npm run changeset:tag
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  # 2️⃣ When Version PR IS merged → create & push tag (DO NOT PUBLISH HERE)
+                  publish: npm run changeset:tag
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

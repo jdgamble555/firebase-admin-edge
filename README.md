@@ -14,7 +14,7 @@ Uses Rest API under the hood and has no side effects.
 ## Installation
 
 ```bash
-npm install firebase-admin-edge
+npm i -D firebase-admin-edge
 ```
 
 ## Quick Start
@@ -77,6 +77,3 @@ Better docs coming soon...
 - ✅ **Google OAuth** - Complete OAuth 2.0 flow
 - ✅ **Token Management** - Generate client tokens from server sessions
 
-```
-
-```

@@ -25,7 +25,7 @@ npm i -D firebase-admin-edge
 import { createFirebaseEdgeServer } from 'firebase-admin-edge';
 import { getCookie, setCookie } from 'your-framework-library';
 
-const server = createFirebaseEdgeServer({
+export const firebaseServer = createFirebaseEdgeServer({
     serviceAccount: {
         type: 'service_account',
         project_id: 'your-project-id',
@@ -57,7 +57,7 @@ const server = createFirebaseEdgeServer({
 ### Get User
 
 ```ts
-const { data: user } = await authServer.getUser();
+const { data: user } = await firebaseServer.getUser();
 ```
 
 ### Login With Google Code
@@ -65,7 +65,10 @@ const { data: user } = await authServer.getUser();
 ```ts
 // Currently only supports Google Provider, more coming soon!
 
-const { error } = await authServer.signInWithGoogleWithCode(code, redirect_uri);
+const { error } = await firebaseServer.signInWithGoogleWithCode(
+    code,
+    redirect_uri,
+);
 ```
 
 ### Create Google Login URL
@@ -73,7 +76,7 @@ const { error } = await authServer.signInWithGoogleWithCode(code, redirect_uri);
 ```ts
 // Normally you need a browser to do this!
 
-const loginUrl = await authServer.getGoogleLoginURL(redirect_uri, path);
+const loginUrl = await firebaseServer.getGoogleLoginURL(redirect_uri, path);
 
 // Your framework redirect method
 redirect(302, loginUrl);
@@ -82,7 +85,7 @@ redirect(302, loginUrl);
 ### Logout
 
 ```ts
-authServer.signOut();
+firebaseServer.signOut();
 
 // Your framework redirect method
 redirect(302, '/');

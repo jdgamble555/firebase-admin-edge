@@ -1,0 +1,54 @@
+name: Changesets Release
+
+on:
+    push:
+        branches:
+            - main
+
+permissions:
+    contents: write # needed to push tags & update PR branches
+    pull-requests: write # needed so Changesets can create/update the Version Packages PR
+
+jobs:
+    changesets:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0 # important so Changesets can see history & tags
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Configure git user
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+            - name: Changesets PR & Tag
+              uses: changesets/action@v1
+              with:
+                  # 1) When there ARE pending changesets:
+                  #    -> this runs "npm run changeset:version"
+                  #    -> bumps versions, updates changelog, opens/updates Version Packages PR
+                  version: npm run changeset:version
+
+                  # 2) After the Version Packages PR is merged and no changesets remain:
+                  #    -> this block runs instead
+                  #    -> we ONLY create & push a git tag here
+                  #    -> your existing release.yml (on: push: tags: 'v*') will handle npm publish
+                  publish: |
+                      VERSION=$(node -p "require('./package.json').version")
+                      TAG="v$VERSION"
+                      echo "Creating tag $TAG"
+                      git tag "$TAG"
+                      git push origin "$TAG"
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

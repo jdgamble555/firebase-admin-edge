@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.16
+
+### Patch Changes
+
+- a788d57: fix oauth token type
+
 ## 1.0.15
 
 ### Patch Changes

@@ -42,6 +42,6 @@
         "prepublishOnly": "npm run ci",
         "changeset": "changeset",
         "changeset:version": "changeset version",
-        "changeset:tag": "changeset tag"
+        "changeset:publish": "changeset publish"
     }
 }

@@ -140,7 +140,8 @@ describe('firebase-auth-endpoints', () => {
                         postBody:
                             'id_token=provider-token&providerId=google.com',
                         requestUri: 'https://request.com',
-                        returnSecureToken: true
+                        returnSecureToken: true,
+                        returnIdpCredential: true
                     }
                 })
             );

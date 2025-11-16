@@ -86,8 +86,11 @@ export async function signInWithIdp(
 ) {
     const url = createIdentityURL('signInWithIdp');
 
+    const tokenField =
+        providerId === 'github.com' ? 'access_token' : 'id_token';
+
     const postBody = new URLSearchParams({
-        id_token: providerIdToken,
+        [tokenField]: providerIdToken,
         providerId
     }).toString();
 
@@ -99,7 +102,8 @@ export async function signInWithIdp(
         body: {
             postBody,
             requestUri,
-            returnSecureToken: true
+            returnSecureToken: true,
+            returnIdpCredential: true
         },
         params: {
             key

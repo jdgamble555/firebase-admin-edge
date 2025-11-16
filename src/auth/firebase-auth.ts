@@ -11,12 +11,12 @@ export class FirebaseAuth {
     ) {}
 
     async signInWithProvider(
-        idToken: string,
+        oauthToken: string,
         requestUri: string,
         providerId = 'google.com'
     ) {
         const { data: signInData, error: signInError } = await signInWithIdp(
-            idToken,
+            oauthToken,
             requestUri,
             providerId,
             this.firebase_config.apiKey,

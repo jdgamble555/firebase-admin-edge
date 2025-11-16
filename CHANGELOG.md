@@ -1,5 +1,12 @@
 # firebase-admin-edge
 
+## 1.0.3
+
+### Patch Changes
+
+- 544c55c: test
+- add22af: changeset test
+
 ## 1.0.2
 
 ### Patch Changes

@@ -51,7 +51,8 @@ export async function exchangeCodeForGitHubIdToken(
             client_secret,
             redirect_uri
         },
-        form: true
+        form: true,
+        acceptJson: true
     });
 
     return {

@@ -6,6 +6,7 @@ export const restFetch = async <T, A>(
         body?: object;
         params?: Record<string, string>;
         form?: boolean;
+        acceptJson?: boolean;
         bearerToken?: string;
         method?: 'POST' | 'GET';
         global?: {
@@ -16,6 +17,7 @@ export const restFetch = async <T, A>(
 ) => {
     const fetchFn = options?.global?.fetch ?? fetch;
     const form = options?.form ?? false;
+    const acceptJson = options?.acceptJson ?? false;
     const bearerHeader = options?.bearerToken
         ? { Authorization: `Bearer ${options.bearerToken}` }
         : null;
@@ -27,7 +29,7 @@ export const restFetch = async <T, A>(
     const res = await fetchFn(url + query, {
         method: options?.method ?? 'POST',
         headers: {
-            Accept: 'application/json',
+            Accept: acceptJson ? 'application/json' : '*/*',
             'Content-Type': form
                 ? 'application/x-www-form-urlencoded'
                 : 'application/json',

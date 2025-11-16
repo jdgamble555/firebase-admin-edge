@@ -75,7 +75,7 @@ describe('createFirebaseEdgeServer', () => {
             expect(server).toHaveProperty('getUser');
             expect(server).toHaveProperty('getGoogleLoginURL');
             expect(server).toHaveProperty('getGitHubLoginURL');
-            expect(server).toHaveProperty('signInWithWithCode');
+            expect(server).toHaveProperty('signInWithCode');
             expect(server).toHaveProperty('getToken');
         });
 

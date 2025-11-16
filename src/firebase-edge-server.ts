@@ -275,8 +275,10 @@ export function createFirebaseEdgeServer({
             };
         }
 
+        const providerId = provider === 'google' ? 'google.com' : 'github.com';
+
         const { data: signInData, error: signInError } =
-            await auth.signInWithProvider(oauthToken, redirect_uri);
+            await auth.signInWithProvider(oauthToken, redirect_uri, providerId);
 
         if (signInError) {
             return {

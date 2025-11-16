@@ -54,19 +54,39 @@ const server = createFirebaseEdgeServer({
 });
 ```
 
-### Returns these functions:
+### Get User
 
-```
-auth,
-adminAuth,
-signOut,
-getUser,
-getGoogleLoginURL,
-signInWithGoogleWithCode,
-getToken
+```ts
+const { data: user } = await authServer.getUser();
 ```
 
-Better docs coming soon...
+### Login With Google Code
+
+```ts
+// Currently only supports Google Provider, more coming soon!
+
+const { error } = await authServer.signInWithGoogleWithCode(code, redirect_uri);
+```
+
+### Create Google Login URL
+
+```ts
+// Normally you need a browser to do this!
+
+const loginUrl = await authServer.getGoogleLoginURL(redirect_uri, path);
+
+// Your framework redirect method
+redirect(302, loginUrl);
+```
+
+### Logout
+
+```ts
+authServer.signOut();
+
+// Your framework redirect method
+redirect(302, '/');
+```
 
 ## Features
 
@@ -76,4 +96,3 @@ Better docs coming soon...
 - ✅ **Session Management** - Secure HTTP-only cookies
 - ✅ **Google OAuth** - Complete OAuth 2.0 flow
 - ✅ **Token Management** - Generate client tokens from server sessions
-

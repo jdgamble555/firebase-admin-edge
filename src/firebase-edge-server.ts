@@ -380,7 +380,6 @@ export function createFirebaseEdgeServer({
             await auth.signInWithProvider(exchangeData.id_token, redirect_uri);
 
         if (signInError) {
-            console.error(JSON.stringify(signInError));
             return {
                 data: null,
                 error: signInError,
@@ -498,7 +497,6 @@ export function createFirebaseEdgeServer({
             await auth.signInWithCustomToken(signJWTData);
 
         if (signInError) {
-            console.error(signInError);
             return {
                 data: null,
                 error: signInError,

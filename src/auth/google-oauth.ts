@@ -6,6 +6,8 @@ import type {
 import { restFetch } from '../rest-fetch.js';
 import { signJWT } from './firebase-jwt.js';
 
+// TODO - allow scope customization
+
 export function createGoogleOAuthLoginUrl(
     redirect_uri: string,
     path: string,

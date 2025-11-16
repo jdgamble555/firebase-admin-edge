@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.10
+
+### Patch Changes
+
+- 17ea5c5: working on publishing
+
 ## 1.0.9
 
 ### Patch Changes

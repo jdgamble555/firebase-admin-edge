@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.17
+
+### Patch Changes
+
+- 3e3d1fa: add sveltekit demo test
+
 ## 1.0.16
 
 ### Patch Changes

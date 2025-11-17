@@ -129,4 +129,11 @@ redirect(302, '/');
 - ☐ Ban Users
 - ☐ RBAC
 
+### Other TODO Notes
+- Cookie Name, Cookie Options, Callback Path, Debug, TenantId
+- (enableTokenRefreshOnExpiredKidHeader ? cookieSignatureKeys ?)
+- loginWIthCodeFromURL(url)
+- next path?
+
+
 ## Then to DB, then Storage...

@@ -26,7 +26,9 @@ export class FirebaseAuth {
         if (signInError) {
             return {
                 data: null,
-                error: signInError
+                error: new Error(
+                    `Failed to sign in with provider: ${signInError.message}`
+                )
             };
         }
 
@@ -54,7 +56,9 @@ export class FirebaseAuth {
         if (signInError) {
             return {
                 data: null,
-                error: signInError
+                error: new Error(
+                    `Failed to sign in with custom token: ${signInError.message}`
+                )
             };
         }
 

@@ -21,7 +21,6 @@ describe('restFetch', () => {
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
             headers: {
-                Accept: '*/*',
                 'Content-Type': 'application/json'
             },
             body: undefined
@@ -47,7 +46,6 @@ describe('restFetch', () => {
             {
                 method: 'GET',
                 headers: {
-                    Accept: '*/*',
                     'Content-Type': 'application/json'
                 },
                 body: undefined
@@ -70,7 +68,6 @@ describe('restFetch', () => {
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
             headers: {
-                Accept: '*/*',
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ name: 'test', value: 123 })
@@ -92,7 +89,6 @@ describe('restFetch', () => {
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
             headers: {
-                Accept: '*/*',
                 'Content-Type': 'application/x-www-form-urlencoded'
             },
             body: expect.any(URLSearchParams)
@@ -113,7 +109,6 @@ describe('restFetch', () => {
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
             headers: {
-                Accept: '*/*',
                 'Content-Type': 'application/json',
                 Authorization: 'Bearer abc123'
             },
@@ -135,7 +130,6 @@ describe('restFetch', () => {
         expect(mockFetch).toHaveBeenCalledWith('https://api.example.com', {
             method: 'POST',
             headers: {
-                Accept: '*/*',
                 'Content-Type': 'application/json',
                 'X-Custom': 'value'
             },

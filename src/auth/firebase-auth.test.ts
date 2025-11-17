@@ -65,7 +65,11 @@ describe('FirebaseAuth', () => {
             );
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(mockError);
+            expect(result.error).toEqual(
+                new Error(
+                    'Failed to sign in with provider: Authentication failed'
+                )
+            );
         });
 
         it('should return null data and error when no data returned', async () => {
@@ -122,7 +126,11 @@ describe('FirebaseAuth', () => {
                 await firebaseAuth.signInWithCustomToken('customToken');
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(mockError);
+            expect(result.error).toEqual(
+                new Error(
+                    'Failed to sign in with custom token: Invalid custom token'
+                )
+            );
         });
 
         it('should return null data and error when no data returned', async () => {

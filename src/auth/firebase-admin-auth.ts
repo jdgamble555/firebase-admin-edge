@@ -34,11 +34,7 @@ export class FirebaseAdminAuth {
         if (!token) {
             return {
                 data: null,
-                error: {
-                    code: 500,
-                    message: 'No token returned',
-                    errors: []
-                }
+                error: new Error('No token returned')
             };
         }
 
@@ -72,17 +68,16 @@ export class FirebaseAdminAuth {
         if (verifyError) {
             return {
                 data: null,
-                error: verifyError
+                error: new Error(
+                    `Failed to verify ID token: ${verifyError.message}`
+                )
             };
         }
 
         if (!decodedIdToken) {
             return {
                 data: null,
-                error: {
-                    message: 'Could not decode ID token!',
-                    code: 'ERR_DECODE_ID_TOKEN'
-                }
+                error: new Error('Failed to decode ID token')
             };
         }
 
@@ -100,27 +95,23 @@ export class FirebaseAdminAuth {
         if (userError) {
             return {
                 data: null,
-                error: userError
+                error: new Error(`Failed to get user: ${userError.message}`)
             };
         }
 
         if (!user) {
             return {
                 data: null,
-                error: {
-                    message: 'No user record found!',
-                    code: 'ERR_NO_USER'
-                }
+                error: new Error('No user record found!')
             };
         }
 
         if (user.disabled) {
             return {
                 data: null,
-                error: {
-                    message: 'User is disabled!',
-                    code: 'ERR_USER_DISABLED'
-                }
+                error: new Error(
+                    'The user account has been disabled by an administrator.'
+                )
             };
         }
 
@@ -136,10 +127,7 @@ export class FirebaseAdminAuth {
             if (authTimeUtc < validSinceUtc) {
                 return {
                     data: null,
-                    error: {
-                        message: 'Token has been revoked!',
-                        code: 'ERR_TOKEN_REVOKED'
-                    }
+                    error: new Error('The token has been revoked.')
                 };
             }
         }
@@ -162,18 +150,16 @@ export class FirebaseAdminAuth {
         if (getTokenError) {
             return {
                 data: null,
-                error: getTokenError
+                error: new Error(
+                    `Failed to get token: ${getTokenError.message}`
+                )
             };
         }
 
         if (!token) {
             return {
                 data: null,
-                error: {
-                    code: 500,
-                    message: 'No token returned',
-                    errors: []
-                }
+                error: new Error('No token returned')
             };
         }
 
@@ -188,7 +174,9 @@ export class FirebaseAdminAuth {
         if (error) {
             return {
                 data: null,
-                error
+                error: new Error(
+                    `Failed to create session cookie: ${error.message}`
+                )
             };
         }
 
@@ -211,7 +199,9 @@ export class FirebaseAdminAuth {
         if (error) {
             return {
                 data: null,
-                error
+                error: new Error(
+                    `Failed to verify session cookie: ${error.message}`
+                )
             };
         }
 
@@ -227,17 +217,14 @@ export class FirebaseAdminAuth {
         if (userError) {
             return {
                 data: null,
-                error: userError
+                error: new Error(`Failed to get user: ${userError.message}`)
             };
         }
 
         if (!user) {
             return {
                 data: null,
-                error: {
-                    message: 'No user record found!',
-                    code: 'ERR_NO_USER'
-                }
+                error: new Error('No user record found!')
             };
         }
 

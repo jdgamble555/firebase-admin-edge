@@ -123,7 +123,7 @@ export async function verifySessionJWT(
             error: null,
             data: payload as FirebaseIdTokenPayload
         };
-    } catch (err: unknown) {
+    } catch (err) {
         if (err instanceof JWTExpired) {
             return {
                 error: new Error('JWT has expired'),
@@ -209,7 +209,7 @@ export async function verifyJWT(
             error: null,
             data: payload as FirebaseIdTokenPayload
         };
-    } catch (err: unknown) {
+    } catch (err) {
         if (err instanceof JWTExpired) {
             return {
                 error: new Error('JWT has expired'),
@@ -287,13 +287,13 @@ export async function signJWT(
             data: token,
             error: null
         };
-    } catch (e: unknown) {
+    } catch (e) {
         if (e instanceof JOSEError) {
-            return { data: null, error: e };
+            return { data: null, error: new Error(`JOSE Error: ${e.message}`) };
         }
 
         if (e instanceof Error) {
-            return { data: null, error: e };
+            return { data: null, error: new Error(`Error: ${e.message}`) };
         }
 
         return {
@@ -367,17 +367,22 @@ export async function signJWTCustomToken(
             data: token,
             error: null
         };
-    } catch (e: unknown) {
+    } catch (e) {
         if (e instanceof errors.JOSEError) {
             return {
                 data: null,
-                error: e
+                error: new Error(`JOSE Error: ${e.message}`)
             };
         }
-
+        if (e instanceof Error) {
+            return {
+                data: null,
+                error: new Error(`Error: ${e.message}`)
+            };
+        }
         return {
             data: null,
-            error: e as Error
+            error: new Error('Unknown error during JWT signing')
         };
     }
 }

@@ -288,12 +288,32 @@ export function createFirebaseEdgeServer({
 
         if (!signInData) {
             return {
-                error: null
+                error: new Error('No sign-in data obtained')
+            };
+        }
+
+        if (signInData.needConfirmation) {
+            return {
+                error: new Error(
+                    'Account exists with a different sign-in method'
+                )
+            };
+        }
+
+        const idToken =
+            signInData?.idToken ??
+            signInData?.oauthIdToken ??
+            signInData?.oauthAccessToken ??
+            null;
+
+        if (!idToken) {
+            return {
+                error: new Error('No ID token obtained from sign-in')
             };
         }
 
         const { data: sessionCookie, error: sessionError } =
-            await adminAuth.createSessionCookie(signInData.idToken, {
+            await adminAuth.createSessionCookie(idToken, {
                 expiresIn: 60 * 60 * 24 * 5 * 1000
             });
 

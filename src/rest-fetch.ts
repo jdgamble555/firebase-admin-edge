@@ -29,18 +29,18 @@ export const restFetch = async <T, A>(
     const res = await fetchFn(url + query, {
         method: options?.method ?? 'POST',
         headers: {
-            Accept: acceptJson ? 'application/json' : '*/*',
+            ...(acceptJson && { Accept: 'application/json' }),
             'Content-Type': form
                 ? 'application/x-www-form-urlencoded'
                 : 'application/json',
             ...bearerHeader,
             ...options?.headers
         },
-        body: options?.body
-            ? form
+        body:
+            options?.body &&
+            (form
                 ? new URLSearchParams(options.body as Record<string, string>)
-                : JSON.stringify(options.body)
-            : undefined
+                : JSON.stringify(options.body))
     });
 
     if (PRINT_URL) {

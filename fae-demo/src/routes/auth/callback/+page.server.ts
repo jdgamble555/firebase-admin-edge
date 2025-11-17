@@ -25,7 +25,9 @@ export const load: PageServerLoad = async ({ url, locals: { authServer } }) => {
     );
 
     if (loginError) {
-
+        if (loginError instanceof Error) {
+            error(400, loginError.message);
+        }
         error(400, loginError);
     }
 

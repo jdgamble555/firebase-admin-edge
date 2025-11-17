@@ -15,7 +15,6 @@
 	{@render children()}
 	<nav class="flex items-center justify-center gap-3">
 		<a href="/" class="font-medium text-gray-700 hover:text-blue-600">Home</a>
-		<a href="/about" class="font-medium text-gray-700 hover:text-blue-600">About</a>
 		{#if page.data.user}
 			<Logout />
 		{:else}

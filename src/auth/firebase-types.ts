@@ -30,16 +30,23 @@ export type FirebaseCreateAuthUriResponse = {
 };
 
 export type FirebaseIdpSignInResponse = {
-    idToken: string;
-    refreshToken: string;
-    expiresIn: string;
-    localId: string;
-    email?: string;
+    idToken?: string;
+    refreshToken?: string;
+    expiresIn?: string;
+    localId?: string;
+
+    providerId?: string;
+    federatedId?: string;
+    email?: string | null;
     emailVerified?: boolean;
-    providerId: string;
-    federatedId: string;
-    oauthIdToken?: string;
     rawUserInfo?: string;
+
+    oauthIdToken?: string;
+    oauthAccessToken?: string;
+    oauthTokenSecret?: string;
+
+    needConfirmation?: boolean;
+    verifiedProvider?: string[];
 };
 
 export type GoogleTokenResponse = {

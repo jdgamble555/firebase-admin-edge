@@ -109,18 +109,14 @@ describe('FirebaseAdminAuth', () => {
         it('returns error when getToken returns an error', async () => {
             mockedGetToken.mockResolvedValueOnce({
                 data: null,
-                error: { code: 401, message: 'unauthorized', errors: [] }
+                error: new Error('unauthorized')
             });
 
             const result = await auth.getUser('uid-1');
 
             expect(mockedGetToken).toHaveBeenCalled();
             expect(result.data).toBeNull();
-            expect(result.error).toEqual({
-                code: 401,
-                message: 'unauthorized',
-                errors: []
-            });
+            expect(result.error).toEqual(new Error('unauthorized'));
         });
 
         it('returns error when getToken does not return a token', async () => {
@@ -132,11 +128,7 @@ describe('FirebaseAdminAuth', () => {
             const result = await auth.getUser('uid-1');
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual({
-                code: 500,
-                message: 'No token returned',
-                errors: []
-            });
+            expect(result.error).toEqual(new Error('No token returned'));
         });
 
         it('returns user when everything succeeds', async () => {
@@ -172,7 +164,7 @@ describe('FirebaseAdminAuth', () => {
                 error: null
             });
 
-            const error = { code: 404, message: 'not found', errors: [] };
+            const error = { code: 404, message: 'not found' };
             mockedGetAccountInfoByUid.mockResolvedValueOnce({
                 data: null,
                 error
@@ -200,7 +192,9 @@ describe('FirebaseAdminAuth', () => {
                 undefined
             );
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(new Error('bad token'));
+            expect(result.error).toEqual(
+                new Error('Failed to verify ID token: bad token')
+            );
         });
 
         it('returns decoded token when not checking revoked', async () => {
@@ -221,7 +215,7 @@ describe('FirebaseAdminAuth', () => {
                 error: null
             });
 
-            const userError = { code: 500, message: 'fail', errors: [] };
+            const userError = { code: 500, message: 'fail' };
             mockedGetToken.mockResolvedValueOnce({
                 data: mockGoogleTokenResponse,
                 error: null
@@ -234,7 +228,7 @@ describe('FirebaseAdminAuth', () => {
             const result = await auth.verifyIdToken('id-token', true);
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(userError);
+            expect(result.error).toEqual(new Error('Failed to get user: fail'));
         });
 
         it('returns ERR_NO_USER when user is null during revoked check', async () => {
@@ -255,10 +249,7 @@ describe('FirebaseAdminAuth', () => {
             const result = await auth.verifyIdToken('id-token', true);
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual({
-                message: 'No user record found!',
-                code: 'ERR_NO_USER'
-            });
+            expect(result.error).toEqual(new Error('No user record found!'));
         });
 
         it('returns ERR_USER_DISABLED when user.disabled is true', async () => {
@@ -279,10 +270,11 @@ describe('FirebaseAdminAuth', () => {
             const result = await auth.verifyIdToken('id-token', true);
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual({
-                message: 'User is disabled!',
-                code: 'ERR_USER_DISABLED'
-            });
+            expect(result.error).toEqual(
+                new Error(
+                    'The user account has been disabled by an administrator.'
+                )
+            );
         });
 
         it('returns ERR_TOKEN_REVOKED when auth_time < tokensValidAfterTime', async () => {
@@ -309,10 +301,9 @@ describe('FirebaseAdminAuth', () => {
             const result = await auth.verifyIdToken('id-token', true);
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual({
-                message: 'Token has been revoked!',
-                code: 'ERR_TOKEN_REVOKED'
-            });
+            expect(result.error).toEqual(
+                new Error('The token has been revoked.')
+            );
         });
 
         it('returns decoded token when not revoked', async () => {
@@ -349,7 +340,7 @@ describe('FirebaseAdminAuth', () => {
         it('returns error when getToken fails', async () => {
             mockedGetToken.mockResolvedValueOnce({
                 data: null,
-                error: { code: 401, message: 'unauthorized', errors: [] }
+                error: new Error('unauthorized')
             });
 
             const result = await auth.createSessionCookie('id-token', {
@@ -357,11 +348,9 @@ describe('FirebaseAdminAuth', () => {
             });
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual({
-                code: 401,
-                message: 'unauthorized',
-                errors: []
-            });
+            expect(result.error).toEqual(
+                new Error('Failed to get token: unauthorized')
+            );
         });
 
         it('returns error when token is missing', async () => {
@@ -375,11 +364,7 @@ describe('FirebaseAdminAuth', () => {
             });
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual({
-                code: 500,
-                message: 'No token returned',
-                errors: []
-            });
+            expect(result.error).toEqual(new Error('No token returned'));
         });
 
         it('returns error when endpoint returns error', async () => {
@@ -410,7 +395,9 @@ describe('FirebaseAdminAuth', () => {
                 undefined
             );
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(endpointError);
+            expect(result.error).toEqual(
+                new Error('Failed to create session cookie: bad request')
+            );
         });
 
         it('returns session cookie data on success', async () => {
@@ -444,7 +431,9 @@ describe('FirebaseAdminAuth', () => {
             const result = await auth.verifySessionCookie('session-cookie');
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(new Error('bad session token'));
+            expect(result.error).toEqual(
+                new Error('Failed to verify session cookie: bad session token')
+            );
         });
 
         it('returns data when not checking revoked', async () => {
@@ -472,7 +461,7 @@ describe('FirebaseAdminAuth', () => {
                 data: mockGoogleTokenResponse,
                 error: null
             });
-            const error = { code: 500, message: 'fail', errors: [] };
+            const error = { code: 500, message: 'fail' };
             mockedGetAccountInfoByUid.mockResolvedValueOnce({
                 data: null,
                 error
@@ -484,7 +473,7 @@ describe('FirebaseAdminAuth', () => {
             );
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(error);
+            expect(result.error).toEqual(new Error('Failed to get user: fail'));
         });
 
         it('returns ERR_NO_USER when user is null during revoked check', async () => {
@@ -508,10 +497,7 @@ describe('FirebaseAdminAuth', () => {
             );
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual({
-                message: 'No user record found!',
-                code: 'ERR_NO_USER'
-            });
+            expect(result.error).toEqual(new Error('No user record found!'));
         });
 
         it('returns decoded data when revoked check passes', async () => {

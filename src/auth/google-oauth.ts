@@ -54,9 +54,18 @@ export async function exchangeCodeForGoogleIdToken(
         form: true
     });
 
+    if (error?.error.message) {
+        return {
+            data: null,
+            error: new Error(
+                `Failed to exchange code for ID token: ${error.error.message}`
+            )
+        };
+    }
+
     return {
         data,
-        error: error ? error.error : null
+        error: null
     };
 }
 
@@ -73,18 +82,14 @@ export async function getToken(
         if (jwtError) {
             return {
                 data: null,
-                error: jwtError
+                error: new Error(`Failed to sign JWT: ${jwtError.message}`)
             };
         }
 
         if (!jwtData) {
             return {
                 data: null,
-                error: {
-                    code: 500,
-                    message: 'No JWT data returned',
-                    errors: []
-                }
+                error: new Error('No JWT data returned')
             };
         }
 
@@ -104,29 +109,27 @@ export async function getToken(
             form: true
         });
 
+        if (error?.error.message) {
+            return {
+                data: null,
+                error: new Error(`Failed to get token: ${error.error.message}`)
+            };
+        }
+
         return {
             data,
-            error: error ? error.error : null
+            error: null
         };
-    } catch (e: unknown) {
+    } catch (e) {
         if (e instanceof Error) {
             return {
                 data: null,
-                error: {
-                    code: 500,
-                    message: e.message,
-                    errors: []
-                }
+                error: new Error(`Failed to get token: ${e.message}`)
             };
         }
+        return {
+            data: null,
+            error: e as Error
+        };
     }
-
-    return {
-        data: null,
-        error: {
-            code: 500,
-            message: 'Unknown error',
-            errors: []
-        }
-    };
 }

@@ -90,7 +90,12 @@ describe('exchangeCodeForGoogleIdToken', () => {
             payload.client_secret
         );
 
-        expect(result).toEqual({ data: null, error: apiError });
+        expect(result).toEqual({
+            data: null,
+            error: new Error(
+                'Failed to exchange code for ID token: invalid_grant'
+            )
+        });
     });
 });
 
@@ -136,7 +141,10 @@ describe('getToken', () => {
         const result = await getToken(serviceAccount);
 
         expect(restFetchMock).not.toHaveBeenCalled();
-        expect(result).toEqual({ data: null, error: jwtError });
+        expect(result).toEqual({
+            data: null,
+            error: new Error('Failed to sign JWT: bad cert')
+        });
     });
 
     it('reports missing JWT data', async () => {
@@ -146,11 +154,7 @@ describe('getToken', () => {
 
         expect(result).toEqual({
             data: null,
-            error: {
-                code: 500,
-                message: 'No JWT data returned',
-                errors: []
-            }
+            error: new Error('No JWT data returned')
         });
     });
 
@@ -164,7 +168,10 @@ describe('getToken', () => {
 
         const result = await getToken(serviceAccount);
 
-        expect(result).toEqual({ data: null, error: apiError });
+        expect(result).toEqual({
+            data: null,
+            error: new Error('Failed to get token: unavailable')
+        });
     });
 
     it('handles unexpected exceptions', async () => {
@@ -175,7 +182,7 @@ describe('getToken', () => {
 
         expect(result).toEqual({
             data: null,
-            error: { code: 500, message: 'boom', errors: [] }
+            error: new Error('Failed to get token: boom')
         });
     });
 });

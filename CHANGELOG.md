@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.18
+
+### Patch Changes
+
+- 0fcd394: Fix Error Handling
+
 ## 1.0.17
 
 ### Patch Changes

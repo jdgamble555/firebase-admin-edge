@@ -109,3 +109,22 @@ redirect(302, '/');
 - ✅ **Session Management** - Secure HTTP-only cookies
 - ✅ **Google OAuth** - Complete OAuth 2.0 flow
 - ✅ **Token Management** - Generate client tokens from server sessions
+
+## Currently Working On
+
+- ☐ LinkProvider (auto link?)
+- ☐ Unlink Provider
+- ☐ Create Error Classes
+- ☐ Tenants
+- ☐ App Check
+- ☐ Magic Link (auto save email?)
+- ☐ Email / Password
+- ☐ Custom oAuth Scopes
+- ☐ Get User
+- ☐ Update User
+- ☐ Delete User
+- ☐ Add / Remove Claims
+- ☐ Get all Users / Pagination
+- ☐ All Providers
+- ☐ Ban Users
+- ☐ RBAC

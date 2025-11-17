@@ -110,7 +110,7 @@ redirect(302, '/');
 - ✅ **Google OAuth** - Complete OAuth 2.0 flow
 - ✅ **Token Management** - Generate client tokens from server sessions
 
-## Currently Working On
+## Currently Working On - (in no particular order)
 
 - ☐ LinkProvider (auto link?)
 - ☐ Unlink Provider
@@ -128,3 +128,5 @@ redirect(302, '/');
 - ☐ All Providers
 - ☐ Ban Users
 - ☐ RBAC
+
+## Then to DB, then Storage...

@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.21
+
+### Patch Changes
+
+- c8e13b8: redirectUri and url input
+
 ## 1.0.20
 
 ### Patch Changes

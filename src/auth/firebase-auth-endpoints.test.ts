@@ -10,6 +10,7 @@ import {
     getPublicKeys
 } from './firebase-auth-endpoints.js';
 import * as restFetch from '../rest-fetch.js';
+import { FirebaseEdgeError, FirebaseEndpointErrorInfo } from './errors.js';
 
 vi.mock('../rest-fetch.js');
 
@@ -60,7 +61,10 @@ describe('firebase-auth-endpoints', () => {
         });
 
         it('should handle error response', async () => {
-            const mockError = { message: 'Invalid refresh token' };
+            const mockError = {
+                code: 400,
+                message: 'INVALID_GRANT: Invalid refresh token'
+            };
 
             vi.mocked(restFetch.restFetch).mockResolvedValue({
                 data: null,
@@ -73,7 +77,10 @@ describe('firebase-auth-endpoints', () => {
             );
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(mockError);
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error!.code).toBe(
+                FirebaseEndpointErrorInfo.ENDPOINT_INVALID_REFRESH_TOKEN.code
+            );
         });
     });
 
@@ -298,7 +305,10 @@ describe('firebase-auth-endpoints', () => {
         });
 
         it('should handle error response', async () => {
-            const mockError = { message: 'Failed to fetch keys' };
+            const mockError = {
+                code: 403,
+                message: 'PERMISSION_DENIED: Failed to fetch keys'
+            };
 
             vi.mocked(restFetch.restFetch).mockResolvedValue({
                 data: null,
@@ -308,7 +318,10 @@ describe('firebase-auth-endpoints', () => {
             const result = await getPublicKeys();
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(mockError);
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error!.code).toBe(
+                FirebaseEndpointErrorInfo.ENDPOINT_PERMISSION_DENIED.code
+            );
         });
     });
     describe('createAdminIdentityURL (indirectly via createSessionCookie)', () => {

@@ -7,6 +7,8 @@ import {
 } from './firebase-jwt.js';
 import type { ServiceAccount } from './firebase-types.js';
 import * as firebaseAuthEndpoints from './firebase-auth-endpoints.js';
+import { FirebaseEdgeError } from './errors.js';
+import { JWTErrorInfo, FirebaseEndpointErrorInfo } from './auth-error-codes.js';
 
 vi.mock('./firebase-auth-endpoints');
 
@@ -36,7 +38,9 @@ describe('firebase-jwt', () => {
         it('should return error when no public keys retrieved', async () => {
             vi.spyOn(firebaseAuthEndpoints, 'getPublicKeys').mockResolvedValue({
                 data: null,
-                error: { code: 500, message: 'Failed to fetch keys' }
+                error: new FirebaseEdgeError(
+                    FirebaseEndpointErrorInfo.ENDPOINT_KEY_FETCH_FAILED
+                )
             });
 
             const result = await verifySessionJWT(
@@ -59,7 +63,11 @@ describe('firebase-jwt', () => {
                 mockProjectId
             );
 
-            expect(result.error).toEqual(new Error('No public keys retrieved'));
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/jwt-no-public-keys');
+            expect(result.error?.message).toBe(
+                JWTErrorInfo.JWT_NO_PUBLIC_KEYS.message
+            );
             expect(result.data).toBeNull();
         });
 
@@ -74,7 +82,11 @@ describe('firebase-jwt', () => {
                 mockProjectId
             );
 
-            expect(result.error?.message).toContain('Invalid session cookie');
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/jwt-no-kid-found');
+            expect(result.error?.message).toBe(
+                JWTErrorInfo.JWT_NO_KID_FOUND.message
+            );
             expect(result.data).toBeNull();
         });
 
@@ -89,7 +101,11 @@ describe('firebase-jwt', () => {
                 mockProjectId
             );
 
-            expect(result.error?.message).toContain('Invalid session cookie');
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/jwt-no-kid-found');
+            expect(result.error?.message).toBe(
+                JWTErrorInfo.JWT_NO_KID_FOUND.message
+            );
             expect(result.data).toBeNull();
         });
     });
@@ -101,8 +117,10 @@ describe('firebase-jwt', () => {
                 mockProjectId
             );
 
-            expect(result.error?.message).toContain(
-                'Invalid ID token: no KID found'
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/jwt-no-kid-found');
+            expect(result.error?.message).toBe(
+                JWTErrorInfo.JWT_NO_KID_FOUND.message
             );
             expect(result.data).toBeNull();
         });
@@ -110,7 +128,9 @@ describe('firebase-jwt', () => {
         it('should return error when getJWKs fails', async () => {
             vi.spyOn(firebaseAuthEndpoints, 'getJWKs').mockResolvedValue({
                 data: null,
-                error: { code: 500, message: 'Network error' }
+                error: new FirebaseEdgeError(
+                    FirebaseEndpointErrorInfo.ENDPOINT_NETWORK_ERROR
+                )
             });
 
             const result = await verifyJWT(
@@ -133,7 +153,11 @@ describe('firebase-jwt', () => {
                 mockProjectId
             );
 
-            expect(result.error?.message).toBe('No JWKs retrieved');
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/jwt-no-jwks-retrieved');
+            expect(result.error?.message).toBe(
+                JWTErrorInfo.JWT_NO_JWKS_RETRIEVED.message
+            );
             expect(result.data).toBeNull();
         });
 
@@ -148,7 +172,11 @@ describe('firebase-jwt', () => {
                 mockProjectId
             );
 
-            expect(result.error?.message).toContain('No matching JWK found');
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/jwt-no-matching-key');
+            expect(result.error?.message).toBe(
+                JWTErrorInfo.JWT_NO_MATCHING_KEY.message
+            );
             expect(result.data).toBeNull();
         });
     });
@@ -162,8 +190,12 @@ describe('firebase-jwt', () => {
 
             const result = await signJWT(invalidServiceAccount);
 
-            expect(result.error?.message).toContain(
-                'Failed to import private key'
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe(
+                'auth/jwt-private-key-import-failed'
+            );
+            expect(result.error?.message).toBe(
+                JWTErrorInfo.JWT_PRIVATE_KEY_IMPORT_FAILED.message
             );
             expect(result.data).toBeNull();
         });
@@ -191,7 +223,11 @@ describe('firebase-jwt', () => {
                 aud: 'reserved'
             });
 
-            expect(result.error?.message).toContain('Reserved claims');
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/jwt-reserved-claims');
+            expect(result.error?.message).toBe(
+                JWTErrorInfo.JWT_RESERVED_CLAIMS.message
+            );
             expect(result.data).toBeNull();
         });
 
@@ -200,7 +236,11 @@ describe('firebase-jwt', () => {
                 firebase_custom: 'value'
             });
 
-            expect(result.error?.message).toContain('Reserved claims');
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/jwt-reserved-claims');
+            expect(result.error?.message).toBe(
+                JWTErrorInfo.JWT_RESERVED_CLAIMS.message
+            );
             expect(result.data).toBeNull();
         });
 

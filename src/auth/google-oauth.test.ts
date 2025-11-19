@@ -1,9 +1,7 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import {
-    createGoogleOAuthLoginUrl,
-    exchangeCodeForGoogleIdToken,
-    getToken
-} from './google-oauth.js';
+import { exchangeCodeForGoogleIdToken, getToken } from './google-oauth.js';
+import { FirebaseEdgeError } from './errors.js';
+import { GoogleErrorInfo } from './auth-error-codes.js';
 
 const restFetchMock = vi.hoisted(() => vi.fn());
 const signJWTMock = vi.hoisted(() => vi.fn());
@@ -20,34 +18,7 @@ beforeEach(() => {
     signJWTMock.mockReset();
 });
 
-describe('createGoogleOAuthLoginUrl', () => {
-    it('builds expected consent screen URL', () => {
-        const url = createGoogleOAuthLoginUrl(
-            'https://example.com/callback',
-            '/next/path',
-            'client-123'
-        );
-        const parsed = new URL(url);
-
-        expect(parsed.origin + parsed.pathname).toBe(
-            'https://accounts.google.com/o/oauth2/v2/auth'
-        );
-        expect(parsed.searchParams.get('client_id')).toBe('client-123');
-        expect(parsed.searchParams.get('redirect_uri')).toBe(
-            'https://example.com/callback'
-        );
-        expect(parsed.searchParams.get('response_type')).toBe('code');
-        expect(parsed.searchParams.get('scope')).toBe('openid email profile');
-        expect(parsed.searchParams.get('access_type')).toBe('offline');
-        expect(parsed.searchParams.get('prompt')).toBe('consent');
-        expect(JSON.parse(parsed.searchParams.get('state') ?? '')).toEqual({
-            next: '/next/path',
-            provider: 'google'
-        });
-    });
-});
-
-describe('exchangeCodeForGoogleIdToken', () => {
+describe('Google OAuth Token Exchange', () => {
     const payload = {
         code: 'auth-code',
         redirect_uri: 'https://example.com/callback',
@@ -90,11 +61,120 @@ describe('exchangeCodeForGoogleIdToken', () => {
             payload.client_secret
         );
 
-        expect(result).toEqual({
+        expect(result.data).toBeNull();
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        expect(result.error?.code).toBe('auth/google-invalid-grant');
+        expect(result.error?.message).toBe(
+            GoogleErrorInfo.GOOGLE_INVALID_GRANT.message
+        );
+    });
+
+    it('handles invalid client error', async () => {
+        const apiError = { code: 401, message: 'invalid_client' };
+        restFetchMock.mockResolvedValue({
             data: null,
-            error: new Error(
-                'Failed to exchange code for ID token: invalid_grant'
-            )
+            error: { error: apiError }
+        });
+
+        const result = await exchangeCodeForGoogleIdToken(
+            payload.code,
+            payload.redirect_uri,
+            payload.client_id,
+            payload.client_secret
+        );
+
+        expect(result.data).toBeNull();
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        expect(result.error?.code).toBe('auth/google-invalid-client');
+        expect(result.error?.message).toBe(
+            GoogleErrorInfo.GOOGLE_INVALID_CLIENT.message
+        );
+    });
+
+    it('handles invalid request error', async () => {
+        const apiError = { code: 400, message: 'invalid_request' };
+        restFetchMock.mockResolvedValue({
+            data: null,
+            error: { error: apiError }
+        });
+
+        const result = await exchangeCodeForGoogleIdToken(
+            payload.code,
+            payload.redirect_uri,
+            payload.client_id,
+            payload.client_secret
+        );
+
+        expect(result.data).toBeNull();
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        expect(result.error?.code).toBe('auth/google-invalid-request');
+        expect(result.error?.message).toBe(
+            GoogleErrorInfo.GOOGLE_INVALID_REQUEST.message
+        );
+    });
+
+    it('handles access denied error', async () => {
+        const apiError = { code: 403, message: 'access_denied' };
+        restFetchMock.mockResolvedValue({
+            data: null,
+            error: { error: apiError }
+        });
+
+        const result = await exchangeCodeForGoogleIdToken(
+            payload.code,
+            payload.redirect_uri,
+            payload.client_id,
+            payload.client_secret
+        );
+
+        expect(result.data).toBeNull();
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        expect(result.error?.code).toBe('auth/google-access-denied');
+        expect(result.error?.message).toBe(
+            GoogleErrorInfo.GOOGLE_ACCESS_DENIED.message
+        );
+    });
+
+    it('handles unrecognized error with default fallback', async () => {
+        const apiError = { code: 500, message: 'unknown_error' };
+        restFetchMock.mockResolvedValue({
+            data: null,
+            error: { error: apiError }
+        });
+
+        const result = await exchangeCodeForGoogleIdToken(
+            payload.code,
+            payload.redirect_uri,
+            payload.client_id,
+            payload.client_secret
+        );
+
+        expect(result.data).toBeNull();
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        expect(result.error?.code).toBe('auth/google-code-exchange-failed');
+        expect(result.error?.message).toBe(
+            GoogleErrorInfo.GOOGLE_CODE_EXCHANGE_FAILED.message
+        );
+    });
+
+    it('includes error context in FirebaseEdgeError', async () => {
+        const apiError = { code: 400, message: 'invalid_grant' };
+        restFetchMock.mockResolvedValue({
+            data: null,
+            error: { error: apiError }
+        });
+
+        const result = await exchangeCodeForGoogleIdToken(
+            payload.code,
+            payload.redirect_uri,
+            payload.client_id,
+            payload.client_secret
+        );
+
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        const firebaseError = result.error as FirebaseEdgeError;
+        expect(firebaseError.context).toEqual({
+            originalError: 'invalid_grant'
         });
     });
 });
@@ -141,10 +221,12 @@ describe('getToken', () => {
         const result = await getToken(serviceAccount);
 
         expect(restFetchMock).not.toHaveBeenCalled();
-        expect(result).toEqual({
-            data: null,
-            error: new Error('Failed to sign JWT: bad cert')
-        });
+        expect(result.data).toBeNull();
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        expect(result.error?.code).toBe('auth/jwt-sign-failed');
+        expect(result.error?.message).toBe(
+            GoogleErrorInfo.JWT_SIGN_FAILED.message
+        );
     });
 
     it('reports missing JWT data', async () => {
@@ -152,10 +234,12 @@ describe('getToken', () => {
 
         const result = await getToken(serviceAccount);
 
-        expect(result).toEqual({
-            data: null,
-            error: new Error('No JWT data returned')
-        });
+        expect(result.data).toBeNull();
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        expect(result.error?.code).toBe('auth/jwt-data-missing');
+        expect(result.error?.message).toBe(
+            GoogleErrorInfo.JWT_DATA_MISSING.message
+        );
     });
 
     it('returns REST error payload from Google', async () => {
@@ -168,10 +252,12 @@ describe('getToken', () => {
 
         const result = await getToken(serviceAccount);
 
-        expect(result).toEqual({
-            data: null,
-            error: new Error('Failed to get token: unavailable')
-        });
+        expect(result.data).toBeNull();
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        expect(result.error?.code).toBe('auth/google-temporarily-unavailable');
+        expect(result.error?.message).toBe(
+            GoogleErrorInfo.GOOGLE_TEMPORARILY_UNAVAILABLE.message
+        );
     });
 
     it('handles unexpected exceptions', async () => {
@@ -180,9 +266,43 @@ describe('getToken', () => {
 
         const result = await getToken(serviceAccount);
 
-        expect(result).toEqual({
+        expect(result.data).toBeNull();
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        expect(result.error?.code).toBe('auth/google-token-request-failed');
+        expect(result.error?.message).toBe(
+            GoogleErrorInfo.GOOGLE_TOKEN_REQUEST_FAILED.message
+        );
+    });
+
+    it('handles server error with appropriate mapping', async () => {
+        const apiError = { code: 500, message: 'Internal server error' };
+        signJWTMock.mockResolvedValue({ data: 'signed-jwt', error: null });
+        restFetchMock.mockResolvedValue({
             data: null,
-            error: new Error('Failed to get token: boom')
+            error: { error: apiError }
         });
+
+        const result = await getToken(serviceAccount);
+
+        expect(result.data).toBeNull();
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        expect(result.error?.code).toBe('auth/google-server-error');
+        expect(result.error?.message).toBe(
+            GoogleErrorInfo.GOOGLE_SERVER_ERROR.message
+        );
+    });
+
+    it('includes error context in FirebaseEdgeError', async () => {
+        const jwtError = { code: 401, message: 'bad cert', errors: [] };
+        signJWTMock.mockResolvedValue({ data: null, error: jwtError });
+
+        const result = await getToken(serviceAccount);
+
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        const firebaseError = result.error as FirebaseEdgeError;
+        expect(firebaseError.context).toEqual({
+            originalError: 'bad cert'
+        });
+        expect(firebaseError.cause).toBeInstanceOf(Error);
     });
 });

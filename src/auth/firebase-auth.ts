@@ -3,6 +3,8 @@ import {
     signInWithIdp
 } from './firebase-auth-endpoints.js';
 import type { FirebaseConfig } from './firebase-types.js';
+import { FirebaseEdgeError, ensureError } from './errors.js';
+import { FirebaseAuthErrorInfo } from './auth-error-codes.js';
 
 export class FirebaseAuth {
     constructor(
@@ -15,63 +17,113 @@ export class FirebaseAuth {
         requestUri: string,
         providerId = 'google.com'
     ) {
-        const { data: signInData, error: signInError } = await signInWithIdp(
-            oauthToken,
-            requestUri,
-            providerId,
-            this.firebase_config.apiKey,
-            this.fetch
-        );
+        try {
+            const { data: signInData, error: signInError } =
+                await signInWithIdp(
+                    oauthToken,
+                    requestUri,
+                    providerId,
+                    this.firebase_config.apiKey,
+                    this.fetch
+                );
 
-        if (signInError) {
+            if (signInError) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAuthErrorInfo.AUTH_PROVIDER_SIGN_IN_FAILED,
+                        {
+                            cause: ensureError(signInError),
+                            context: { providerId, requestUri }
+                        }
+                    )
+                };
+            }
+
+            if (!signInData) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAuthErrorInfo.AUTH_PROVIDER_DATA_MISSING,
+                        {
+                            context: { providerId, requestUri }
+                        }
+                    )
+                };
+            }
+
+            return {
+                data: signInData,
+                error: null
+            };
+        } catch (err) {
             return {
                 data: null,
-                error: new Error(
-                    `Failed to sign in with provider: ${signInError.message}`
+                error: new FirebaseEdgeError(
+                    FirebaseAuthErrorInfo.AUTH_PROVIDER_SIGN_IN_FAILED,
+                    {
+                        cause: ensureError(err),
+                        context: { providerId, requestUri }
+                    }
                 )
             };
         }
-
-        if (!signInData) {
-            return {
-                data: null,
-                error: null
-            };
-        }
-
-        return {
-            data: signInData,
-            error: null
-        };
     }
 
     async signInWithCustomToken(customToken: string) {
-        const { data: signInData, error: signInError } =
-            await signInWithCustomToken(
-                customToken,
-                this.firebase_config.apiKey,
-                this.fetch
-            );
+        try {
+            const { data: signInData, error: signInError } =
+                await signInWithCustomToken(
+                    customToken,
+                    this.firebase_config.apiKey,
+                    this.fetch
+                );
 
-        if (signInError) {
+            if (signInError) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAuthErrorInfo.AUTH_INVALID_CUSTOM_TOKEN,
+                        {
+                            cause: ensureError(signInError),
+                            context: {
+                                customToken:
+                                    customToken.substring(0, 20) + '...'
+                            }
+                        }
+                    )
+                };
+            }
+
+            if (!signInData) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAuthErrorInfo.AUTH_PROVIDER_DATA_MISSING,
+                        {
+                            context: { operation: 'signInWithCustomToken' }
+                        }
+                    )
+                };
+            }
+
+            return {
+                data: signInData,
+                error: null
+            };
+        } catch (err) {
             return {
                 data: null,
-                error: new Error(
-                    `Failed to sign in with custom token: ${signInError.message}`
+                error: new FirebaseEdgeError(
+                    FirebaseAuthErrorInfo.AUTH_CUSTOM_TOKEN_SIGN_FAILED,
+                    {
+                        cause: ensureError(err),
+                        context: {
+                            customToken: customToken.substring(0, 20) + '...'
+                        }
+                    }
                 )
             };
         }
-
-        if (!signInData) {
-            return {
-                data: null,
-                error: null
-            };
-        }
-
-        return {
-            data: signInData,
-            error: null
-        };
     }
 }

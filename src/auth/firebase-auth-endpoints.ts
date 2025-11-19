@@ -7,6 +7,8 @@ import type {
 } from './firebase-types.js';
 import { restFetch } from '../rest-fetch.js';
 import type { JsonWebKey } from 'crypto';
+import { FirebaseEdgeError, ensureError } from './errors.js';
+import { mapFirebaseError } from './auth-endpoint-errors.js';
 
 // Functions
 
@@ -46,7 +48,7 @@ export async function refreshFirebaseIdToken(
 
     return {
         data,
-        error: error ? error.error : null
+        error: error ? mapFirebaseError(error.error) : null
     };
 }
 
@@ -73,7 +75,7 @@ export async function createAuthUri(
 
     return {
         data,
-        error: error ? error.error : null
+        error: error ? mapFirebaseError(error.error) : null
     };
 }
 
@@ -112,7 +114,7 @@ export async function signInWithIdp(
 
     return {
         data,
-        error: error ? error.error : null
+        error: error ? mapFirebaseError(error.error) : null
     };
 }
 
@@ -139,7 +141,7 @@ export async function signInWithCustomToken(
 
     return {
         data,
-        error: error ? error.error : null
+        error: error ? mapFirebaseError(error.error) : null
     };
 }
 
@@ -164,7 +166,7 @@ export async function getAccountInfoByUid(
 
     return {
         data: data?.users.length ? data.users[0] : null,
-        error: error ? error.error : null
+        error: error ? mapFirebaseError(error.error) : null
     };
 }
 
@@ -195,7 +197,7 @@ export async function createSessionCookie(
 
     return {
         data: data?.sessionCookie || null,
-        error: error ? error.error : null
+        error: error ? mapFirebaseError(error.error) : null
     };
 }
 
@@ -213,7 +215,7 @@ export async function getJWKs(fetchFn?: typeof globalThis.fetch) {
 
     return {
         data: data?.keys || null,
-        error: error ? error.error : null
+        error: error ? mapFirebaseError(error.error) : null
     };
 }
 
@@ -231,6 +233,6 @@ export async function getPublicKeys(fetchFn?: typeof globalThis.fetch) {
 
     return {
         data,
-        error: error ? error.error : null
+        error: error ? mapFirebaseError(error.error) : null
     };
 }

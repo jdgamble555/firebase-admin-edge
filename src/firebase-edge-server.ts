@@ -7,14 +7,14 @@ import { FirebaseAdminAuth } from './auth/firebase-admin-auth.js';
 import { FirebaseAuth } from './auth/firebase-auth.js';
 import { signJWTCustomToken } from './auth/firebase-jwt.js';
 import type { FirebaseConfig, ServiceAccount } from './auth/firebase-types.js';
+import { exchangeCodeForGitHubIdToken } from './auth/github-oauth.js';
+import { exchangeCodeForGoogleIdToken } from './auth/google-oauth.js';
 import {
     createGitHubOAuthLoginUrl,
-    exchangeCodeForGitHubIdToken
-} from './auth/github-oauth.js';
-import {
-    createGoogleOAuthLoginUrl,
-    exchangeCodeForGoogleIdToken
-} from './auth/google-oauth.js';
+    createGoogleOAuthLoginUrl
+} from './auth/oauth.js';
+import { FirebaseEdgeError } from './auth/errors.js';
+import { FirebaseEdgeServerErrorInfo } from './firebase-edge-errors.js';
 
 const DEFAULT_SESSION_NAME = '__session';
 
@@ -166,7 +166,9 @@ export function createFirebaseEdgeServer({
         deleteSession();
 
         if (!providers.google) {
-            throw new Error('Google provider not configured');
+            throw new FirebaseEdgeError(
+                FirebaseEdgeServerErrorInfo.EDGE_GOOGLE_PROVIDER_NOT_CONFIGURED
+            );
         }
 
         const { client_id } = providers.google;
@@ -186,7 +188,9 @@ export function createFirebaseEdgeServer({
         deleteSession();
 
         if (!providers.github) {
-            throw new Error('GitHub provider not configured');
+            throw new FirebaseEdgeError(
+                FirebaseEdgeServerErrorInfo.EDGE_GITHUB_PROVIDER_NOT_CONFIGURED
+            );
         }
 
         const { client_id } = providers.github;
@@ -211,7 +215,9 @@ export function createFirebaseEdgeServer({
 
         if (!provider) {
             return {
-                error: new Error('No provider specified in state')
+                error: new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_NO_PROVIDER_IN_STATE
+                )
             };
         }
 
@@ -237,7 +243,9 @@ export function createFirebaseEdgeServer({
 
             if (!googleData) {
                 return {
-                    error: new Error('No exchange data!')
+                    error: new FirebaseEdgeError(
+                        FirebaseEdgeServerErrorInfo.EDGE_NO_EXCHANGE_DATA
+                    )
                 };
             }
 
@@ -262,7 +270,9 @@ export function createFirebaseEdgeServer({
 
             if (!githubData) {
                 return {
-                    error: new Error('No exchange data!')
+                    error: new FirebaseEdgeError(
+                        FirebaseEdgeServerErrorInfo.EDGE_NO_EXCHANGE_DATA
+                    )
                 };
             }
 
@@ -271,7 +281,9 @@ export function createFirebaseEdgeServer({
 
         if (!oauthToken) {
             return {
-                error: new Error('No OAuth token obtained')
+                error: new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_NO_OAUTH_TOKEN
+                )
             };
         }
 
@@ -288,14 +300,16 @@ export function createFirebaseEdgeServer({
 
         if (!signInData) {
             return {
-                error: new Error('No sign-in data obtained')
+                error: new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_NO_SIGN_IN_DATA
+                )
             };
         }
 
         if (signInData.needConfirmation) {
             return {
-                error: new Error(
-                    'Account exists with a different sign-in method'
+                error: new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_ACCOUNT_EXISTS_DIFFERENT_METHOD
                 )
             };
         }
@@ -308,7 +322,9 @@ export function createFirebaseEdgeServer({
 
         if (!idToken) {
             return {
-                error: new Error('No ID token obtained from sign-in')
+                error: new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_NO_ID_TOKEN
+                )
             };
         }
 
@@ -325,7 +341,9 @@ export function createFirebaseEdgeServer({
 
         if (!sessionCookie) {
             return {
-                error: new Error('No session cookie returned')
+                error: new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_NO_SESSION_COOKIE
+                )
             };
         }
 
@@ -371,7 +389,9 @@ export function createFirebaseEdgeServer({
         if (!signJWTData) {
             return {
                 data: null,
-                error: new Error('No custom token signed')
+                error: new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_NO_CUSTOM_TOKEN_SIGNED
+                )
             };
         }
 

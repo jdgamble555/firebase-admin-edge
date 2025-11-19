@@ -9,6 +9,11 @@ import {
 } from './firebase-jwt.js';
 import type { ServiceAccount } from './firebase-types.js';
 import { getToken } from './google-oauth.js';
+import {
+    FirebaseEdgeError,
+    FirebaseAdminAuthErrorInfo,
+    ensureError
+} from './errors.js';
 
 export class FirebaseAdminAuth {
     constructor(
@@ -27,14 +32,19 @@ export class FirebaseAdminAuth {
         if (getTokenError) {
             return {
                 data: null,
-                error: getTokenError
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED,
+                    { cause: getTokenError }
+                )
             };
         }
 
         if (!token) {
             return {
                 data: null,
-                error: new Error('No token returned')
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                )
             };
         }
 
@@ -68,8 +78,9 @@ export class FirebaseAdminAuth {
         if (verifyError) {
             return {
                 data: null,
-                error: new Error(
-                    `Failed to verify ID token: ${verifyError.message}`
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_ID_TOKEN_VERIFY_FAILED,
+                    { cause: ensureError(verifyError) }
                 )
             };
         }
@@ -77,7 +88,9 @@ export class FirebaseAdminAuth {
         if (!decodedIdToken) {
             return {
                 data: null,
-                error: new Error('Failed to decode ID token')
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_ID_TOKEN_DECODE_FAILED
+                )
             };
         }
 
@@ -109,8 +122,8 @@ export class FirebaseAdminAuth {
         if (user.disabled) {
             return {
                 data: null,
-                error: new Error(
-                    'The user account has been disabled by an administrator.'
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_USER_DISABLED
                 )
             };
         }
@@ -127,7 +140,9 @@ export class FirebaseAdminAuth {
             if (authTimeUtc < validSinceUtc) {
                 return {
                     data: null,
-                    error: new Error('The token has been revoked.')
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_ID_TOKEN_REVOKED
+                    )
                 };
             }
         }
@@ -150,8 +165,9 @@ export class FirebaseAdminAuth {
         if (getTokenError) {
             return {
                 data: null,
-                error: new Error(
-                    `Failed to get token: ${getTokenError.message}`
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED,
+                    { cause: getTokenError }
                 )
             };
         }
@@ -159,7 +175,9 @@ export class FirebaseAdminAuth {
         if (!token) {
             return {
                 data: null,
-                error: new Error('No token returned')
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                )
             };
         }
 
@@ -174,8 +192,9 @@ export class FirebaseAdminAuth {
         if (error) {
             return {
                 data: null,
-                error: new Error(
-                    `Failed to create session cookie: ${error.message}`
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_SESSION_COOKIE_CREATE_FAILED,
+                    { cause: ensureError(error) }
                 )
             };
         }
@@ -199,8 +218,9 @@ export class FirebaseAdminAuth {
         if (error) {
             return {
                 data: null,
-                error: new Error(
-                    `Failed to verify session cookie: ${error.message}`
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_SESSION_COOKIE_VERIFY_FAILED,
+                    { cause: ensureError(error) }
                 )
             };
         }
@@ -244,14 +264,19 @@ export class FirebaseAdminAuth {
         if (error) {
             return {
                 data: null,
-                error
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_CUSTOM_TOKEN_CREATE_FAILED,
+                    { cause: ensureError(error) }
+                )
             };
         }
 
         if (!data) {
             return {
                 data: null,
-                error: new Error('No custom token returned')
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_CUSTOM_TOKEN_NO_DATA
+                )
             };
         }
 

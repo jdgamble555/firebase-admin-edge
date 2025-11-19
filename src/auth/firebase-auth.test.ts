@@ -1,6 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FirebaseAuth } from './firebase-auth.js';
 import * as endpoints from './firebase-auth-endpoints.js';
+import { FirebaseEdgeError } from './errors.js';
+import { mapFirebaseError } from './auth-endpoint-errors.js';
+import { FirebaseAuthErrorInfo } from './auth-error-codes.js';
 
 vi.mock('./firebase-auth-endpoints.js');
 
@@ -53,7 +56,10 @@ describe('FirebaseAuth', () => {
         });
 
         it('should return error on failed sign in', async () => {
-            const mockError = { code: 400, message: 'Authentication failed' };
+            const mockError = mapFirebaseError({
+                code: 400,
+                message: 'INVALID_ID_TOKEN'
+            });
             vi.mocked(endpoints.signInWithIdp).mockResolvedValue({
                 data: null,
                 error: mockError
@@ -65,14 +71,14 @@ describe('FirebaseAuth', () => {
             );
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(
-                new Error(
-                    'Failed to sign in with provider: Authentication failed'
-                )
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/provider-sign-in-failed');
+            expect(result.error?.message).toBe(
+                FirebaseAuthErrorInfo.AUTH_PROVIDER_SIGN_IN_FAILED.message
             );
         });
 
-        it('should return null data and error when no data returned', async () => {
+        it('should return error when no data returned', async () => {
             vi.mocked(endpoints.signInWithIdp).mockResolvedValue({
                 data: null,
                 error: null
@@ -84,7 +90,11 @@ describe('FirebaseAuth', () => {
             );
 
             expect(result.data).toBeNull();
-            expect(result.error).toBeNull();
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/provider-data-missing');
+            expect(result.error?.message).toBe(
+                FirebaseAuthErrorInfo.AUTH_PROVIDER_DATA_MISSING.message
+            );
         });
     });
 
@@ -116,7 +126,10 @@ describe('FirebaseAuth', () => {
         });
 
         it('should return error on failed sign in', async () => {
-            const mockError = { code: 400, message: 'Invalid custom token' };
+            const mockError = mapFirebaseError({
+                code: 400,
+                message: 'INVALID_CUSTOM_TOKEN'
+            });
             vi.mocked(endpoints.signInWithCustomToken).mockResolvedValue({
                 data: null,
                 error: mockError
@@ -126,14 +139,14 @@ describe('FirebaseAuth', () => {
                 await firebaseAuth.signInWithCustomToken('customToken');
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(
-                new Error(
-                    'Failed to sign in with custom token: Invalid custom token'
-                )
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/invalid-custom-token');
+            expect(result.error?.message).toBe(
+                FirebaseAuthErrorInfo.AUTH_INVALID_CUSTOM_TOKEN.message
             );
         });
 
-        it('should return null data and error when no data returned', async () => {
+        it('should return error when no data returned', async () => {
             vi.mocked(endpoints.signInWithCustomToken).mockResolvedValue({
                 data: null,
                 error: null
@@ -143,7 +156,11 @@ describe('FirebaseAuth', () => {
                 await firebaseAuth.signInWithCustomToken('customToken');
 
             expect(result.data).toBeNull();
-            expect(result.error).toBeNull();
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/provider-data-missing');
+            expect(result.error?.message).toBe(
+                FirebaseAuthErrorInfo.AUTH_PROVIDER_DATA_MISSING.message
+            );
         });
     });
 });

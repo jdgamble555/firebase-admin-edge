@@ -5,30 +5,10 @@ import type {
 } from './firebase-types.js';
 import { restFetch } from '../rest-fetch.js';
 import { signJWT } from './firebase-jwt.js';
+import { FirebaseEdgeError, ensureError } from './errors.js';
+import { GoogleErrorInfo } from './auth-error-codes.js';
 
 // TODO - allow scope customization
-
-export function createGoogleOAuthLoginUrl(
-    redirect_uri: string,
-    path: string,
-    client_id: string
-) {
-    return new URL(
-        'https://accounts.google.com/o/oauth2/v2/auth?' +
-            new URLSearchParams({
-                client_id,
-                redirect_uri,
-                response_type: 'code',
-                scope: 'openid email profile',
-                access_type: 'offline',
-                prompt: 'consent',
-                state: JSON.stringify({
-                    next: path,
-                    provider: 'google'
-                })
-            }).toString()
-    ).toString();
-}
 
 export async function exchangeCodeForGoogleIdToken(
     code: string,
@@ -55,10 +35,88 @@ export async function exchangeCodeForGoogleIdToken(
     });
 
     if (error?.error.message) {
+        const errorMessage = error.error.message.toLowerCase();
+
+        if (errorMessage.includes('invalid_grant')) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    GoogleErrorInfo.GOOGLE_INVALID_GRANT,
+                    {
+                        context: { originalError: error.error.message }
+                    }
+                )
+            };
+        }
+
+        if (errorMessage.includes('invalid_client')) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    GoogleErrorInfo.GOOGLE_INVALID_CLIENT,
+                    {
+                        context: { originalError: error.error.message }
+                    }
+                )
+            };
+        }
+
+        if (errorMessage.includes('invalid_request')) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    GoogleErrorInfo.GOOGLE_INVALID_REQUEST,
+                    {
+                        context: { originalError: error.error.message }
+                    }
+                )
+            };
+        }
+
+        if (errorMessage.includes('access_denied')) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    GoogleErrorInfo.GOOGLE_ACCESS_DENIED,
+                    {
+                        context: { originalError: error.error.message }
+                    }
+                )
+            };
+        }
+
+        if (errorMessage.includes('unsupported_response_type')) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    GoogleErrorInfo.GOOGLE_UNSUPPORTED_RESPONSE_TYPE,
+                    {
+                        context: { originalError: error.error.message }
+                    }
+                )
+            };
+        }
+
+        if (errorMessage.includes('invalid_scope')) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    GoogleErrorInfo.GOOGLE_INVALID_SCOPE,
+                    {
+                        context: { originalError: error.error.message }
+                    }
+                )
+            };
+        }
+
+        // Default case for unrecognized errors
         return {
             data: null,
-            error: new Error(
-                `Failed to exchange code for ID token: ${error.error.message}`
+            error: new FirebaseEdgeError(
+                GoogleErrorInfo.GOOGLE_CODE_EXCHANGE_FAILED,
+                {
+                    context: { originalError: error.error.message }
+                }
             )
         };
     }
@@ -82,14 +140,17 @@ export async function getToken(
         if (jwtError) {
             return {
                 data: null,
-                error: new Error(`Failed to sign JWT: ${jwtError.message}`)
+                error: new FirebaseEdgeError(GoogleErrorInfo.JWT_SIGN_FAILED, {
+                    cause: ensureError(jwtError),
+                    context: { originalError: jwtError.message }
+                })
             };
         }
 
         if (!jwtData) {
             return {
                 data: null,
-                error: new Error('No JWT data returned')
+                error: new FirebaseEdgeError(GoogleErrorInfo.JWT_DATA_MISSING)
             };
         }
 
@@ -110,9 +171,47 @@ export async function getToken(
         });
 
         if (error?.error.message) {
+            const errorMessage = error.error.message.toLowerCase();
+
+            if (
+                errorMessage.includes('unavailable') ||
+                errorMessage.includes('503')
+            ) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        GoogleErrorInfo.GOOGLE_TEMPORARILY_UNAVAILABLE,
+                        {
+                            context: { originalError: error.error.message }
+                        }
+                    )
+                };
+            }
+
+            if (
+                errorMessage.includes('server') ||
+                errorMessage.includes('500')
+            ) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        GoogleErrorInfo.GOOGLE_SERVER_ERROR,
+                        {
+                            context: { originalError: error.error.message }
+                        }
+                    )
+                };
+            }
+
+            // Default case for other service account token errors
             return {
                 data: null,
-                error: new Error(`Failed to get token: ${error.error.message}`)
+                error: new FirebaseEdgeError(
+                    GoogleErrorInfo.SERVICE_ACCOUNT_TOKEN_FAILED,
+                    {
+                        context: { originalError: error.error.message }
+                    }
+                )
             };
         }
 
@@ -121,15 +220,18 @@ export async function getToken(
             error: null
         };
     } catch (e) {
-        if (e instanceof Error) {
-            return {
-                data: null,
-                error: new Error(`Failed to get token: ${e.message}`)
-            };
-        }
         return {
             data: null,
-            error: e as Error
+            error: new FirebaseEdgeError(
+                GoogleErrorInfo.GOOGLE_TOKEN_REQUEST_FAILED,
+                {
+                    cause: ensureError(e),
+                    context: {
+                        originalError:
+                            e instanceof Error ? e.message : String(e)
+                    }
+                }
+            )
         };
     }
 }

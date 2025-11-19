@@ -21,6 +21,8 @@ import type {
     ServiceAccount
 } from './firebase-types.js';
 import { getJWKs, getPublicKeys } from './firebase-auth-endpoints.js';
+import { FirebaseEdgeError, ensureError } from './errors.js';
+import { JWTErrorInfo } from './auth-error-codes.js';
 
 const ALGORITHM_RS256 = 'RS256' as const;
 
@@ -59,7 +61,7 @@ type SignJwtResult =
     | { data: string; error: null }
     | {
           data: null;
-          error: JOSEError | Error | { message: string };
+          error: FirebaseEdgeError;
       };
 
 export async function verifySessionJWT(
@@ -80,7 +82,7 @@ export async function verifySessionJWT(
         if (!keyData) {
             return {
                 data: null,
-                error: new Error('No public keys retrieved')
+                error: new FirebaseEdgeError(JWTErrorInfo.JWT_NO_PUBLIC_KEYS)
             };
         }
 
@@ -93,7 +95,7 @@ export async function verifySessionJWT(
             !keyData[header.kid]
         ) {
             return {
-                error: new Error('Invalid session cookie: no KID found'),
+                error: new FirebaseEdgeError(JWTErrorInfo.JWT_NO_KID_FOUND),
                 data: null
             };
         }
@@ -102,7 +104,7 @@ export async function verifySessionJWT(
 
         if (!publicKeyString) {
             return {
-                error: new Error('No public key found for the given KID'),
+                error: new FirebaseEdgeError(JWTErrorInfo.JWT_NO_MATCHING_KEY),
                 data: null
             };
         }
@@ -126,14 +128,22 @@ export async function verifySessionJWT(
     } catch (err) {
         if (err instanceof JWTExpired) {
             return {
-                error: new Error('JWT has expired'),
+                error: new FirebaseEdgeError(JWTErrorInfo.JWT_EXPIRED, {
+                    cause: ensureError(err)
+                }),
                 data: null
             };
         }
 
         if (err instanceof JWTClaimValidationFailed) {
             return {
-                error: new Error(`JWT claim validation failed: ${err.message}`),
+                error: new FirebaseEdgeError(
+                    JWTErrorInfo.JWT_CLAIM_VALIDATION_FAILED,
+                    {
+                        cause: ensureError(err),
+                        context: { originalError: err.message }
+                    }
+                ),
                 data: null
             };
         }
@@ -143,16 +153,26 @@ export async function verifySessionJWT(
             err instanceof JWSSignatureVerificationFailed
         ) {
             return {
-                error: new Error('JWT signature verification failed'),
+                error: new FirebaseEdgeError(
+                    JWTErrorInfo.JWT_INVALID_SIGNATURE,
+                    {
+                        cause: ensureError(err)
+                    }
+                ),
                 data: null
             };
         }
 
         return {
-            error: new Error(
-                err instanceof Error
-                    ? err.message
-                    : 'Unknown error during JWT verification'
+            error: new FirebaseEdgeError(
+                JWTErrorInfo.JWT_UNKNOWN_VERIFICATION_ERROR,
+                {
+                    cause: ensureError(err),
+                    context: {
+                        originalError:
+                            err instanceof Error ? err.message : String(err)
+                    }
+                }
             ),
             data: null
         };
@@ -169,7 +189,7 @@ export async function verifyJWT(
 
         if (!kid) {
             return {
-                error: new Error('Invalid ID token: no KID found'),
+                error: new FirebaseEdgeError(JWTErrorInfo.JWT_NO_KID_FOUND),
                 data: null
             };
         }
@@ -185,7 +205,9 @@ export async function verifyJWT(
 
         if (!data || !data.length) {
             return {
-                error: new Error('No JWKs retrieved'),
+                error: new FirebaseEdgeError(
+                    JWTErrorInfo.JWT_NO_JWKS_RETRIEVED
+                ),
                 data: null
             };
         }
@@ -194,7 +216,9 @@ export async function verifyJWT(
 
         if (!jwk) {
             return {
-                error: new Error(`No matching JWK found for KID: ${kid}`),
+                error: new FirebaseEdgeError(JWTErrorInfo.JWT_NO_MATCHING_KEY, {
+                    context: { kid }
+                }),
                 data: null
             };
         }
@@ -212,14 +236,22 @@ export async function verifyJWT(
     } catch (err) {
         if (err instanceof JWTExpired) {
             return {
-                error: new Error('JWT has expired'),
+                error: new FirebaseEdgeError(JWTErrorInfo.JWT_EXPIRED, {
+                    cause: ensureError(err)
+                }),
                 data: null
             };
         }
 
         if (err instanceof JWTClaimValidationFailed) {
             return {
-                error: new Error(`JWT claim validation failed: ${err.message}`),
+                error: new FirebaseEdgeError(
+                    JWTErrorInfo.JWT_CLAIM_VALIDATION_FAILED,
+                    {
+                        cause: ensureError(err),
+                        context: { originalError: err.message }
+                    }
+                ),
                 data: null
             };
         }
@@ -229,16 +261,26 @@ export async function verifyJWT(
             err instanceof JWSSignatureVerificationFailed
         ) {
             return {
-                error: new Error('JWT signature verification failed'),
+                error: new FirebaseEdgeError(
+                    JWTErrorInfo.JWT_INVALID_SIGNATURE,
+                    {
+                        cause: ensureError(err)
+                    }
+                ),
                 data: null
             };
         }
 
         return {
-            error: new Error(
-                err instanceof Error
-                    ? err.message
-                    : 'Unknown error during JWT verification'
+            error: new FirebaseEdgeError(
+                JWTErrorInfo.JWT_UNKNOWN_VERIFICATION_ERROR,
+                {
+                    cause: ensureError(err),
+                    context: {
+                        originalError:
+                            err instanceof Error ? err.message : String(err)
+                    }
+                }
             ),
             data: null
         };
@@ -262,8 +304,11 @@ export async function signJWT(
         } catch (e) {
             return {
                 data: null,
-                error: new Error(
-                    'Failed to import private key. Please ensure the private key is correctly formatted.'
+                error: new FirebaseEdgeError(
+                    JWTErrorInfo.JWT_PRIVATE_KEY_IMPORT_FAILED,
+                    {
+                        cause: ensureError(e)
+                    }
                 )
             };
         }
@@ -289,16 +334,27 @@ export async function signJWT(
         };
     } catch (e) {
         if (e instanceof JOSEError) {
-            return { data: null, error: new Error(`JOSE Error: ${e.message}`) };
-        }
-
-        if (e instanceof Error) {
-            return { data: null, error: new Error(`Error: ${e.message}`) };
+            return {
+                data: null,
+                error: new FirebaseEdgeError(JWTErrorInfo.JWT_JOSE_ERROR, {
+                    cause: ensureError(e),
+                    context: { originalError: e.message }
+                })
+            };
         }
 
         return {
             data: null,
-            error: new Error('Unknown error during JWT signing')
+            error: new FirebaseEdgeError(
+                JWTErrorInfo.JWT_UNKNOWN_SIGNING_ERROR,
+                {
+                    cause: ensureError(e),
+                    context: {
+                        originalError:
+                            e instanceof Error ? e.message : String(e)
+                    }
+                }
+            )
         };
     }
 }
@@ -337,9 +393,12 @@ export async function signJWTCustomToken(
     ) {
         return {
             data: null,
-            error: new Error(
-                `Reserved claims (${RESERVED_CLAIMS.join(', ')}) cannot be used in additionalClaims`
-            )
+            error: new FirebaseEdgeError(JWTErrorInfo.JWT_RESERVED_CLAIMS, {
+                context: {
+                    reservedClaims: RESERVED_CLAIMS,
+                    providedClaims: Object.keys(additionalClaims)
+                }
+            })
         };
     }
 
@@ -371,18 +430,25 @@ export async function signJWTCustomToken(
         if (e instanceof errors.JOSEError) {
             return {
                 data: null,
-                error: new Error(`JOSE Error: ${e.message}`)
+                error: new FirebaseEdgeError(JWTErrorInfo.JWT_JOSE_ERROR, {
+                    cause: ensureError(e),
+                    context: { originalError: e.message }
+                })
             };
         }
-        if (e instanceof Error) {
-            return {
-                data: null,
-                error: new Error(`Error: ${e.message}`)
-            };
-        }
+
         return {
             data: null,
-            error: new Error('Unknown error during JWT signing')
+            error: new FirebaseEdgeError(
+                JWTErrorInfo.JWT_UNKNOWN_SIGNING_ERROR,
+                {
+                    cause: ensureError(e),
+                    context: {
+                        originalError:
+                            e instanceof Error ? e.message : String(e)
+                    }
+                }
+            )
         };
     }
 }

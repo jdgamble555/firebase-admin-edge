@@ -4,11 +4,14 @@ import {
     OFFICIAL_FIREBASE_OAUTH_PROVIDERS
 } from './firebase-edge-server.js';
 import type { ServiceAccount, FirebaseConfig } from './auth/firebase-types.js';
+import { FirebaseEdgeError } from './auth/errors.js';
+import { FirebaseEdgeServerErrorInfo } from './firebase-edge-errors.js';
 
 // Mock dependencies
 vi.mock('./auth/firebase-admin-auth.js');
 vi.mock('./auth/firebase-auth.js');
 vi.mock('./auth/firebase-jwt.js');
+vi.mock('./auth/oauth.js');
 vi.mock('./auth/google-oauth.js');
 vi.mock('./auth/github-oauth.js');
 
@@ -172,12 +175,16 @@ describe('createFirebaseEdgeServer', () => {
                     'http://localhost',
                     '/dashboard'
                 )
-            ).rejects.toThrow('Google provider not configured');
+            ).rejects.toThrow(
+                new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_GOOGLE_PROVIDER_NOT_CONFIGURED
+                )
+            );
         });
 
         it('calls deleteSession before generating URL', async () => {
             const { createGoogleOAuthLoginUrl } = await import(
-                './auth/google-oauth.js'
+                './auth/oauth.js'
             );
             vi.mocked(createGoogleOAuthLoginUrl).mockReturnValue(
                 'http://oauth-url'
@@ -210,12 +217,16 @@ describe('createFirebaseEdgeServer', () => {
                     'http://localhost',
                     '/dashboard'
                 )
-            ).rejects.toThrow('GitHub provider not configured');
+            ).rejects.toThrow(
+                new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_GITHUB_PROVIDER_NOT_CONFIGURED
+                )
+            );
         });
 
         it('calls deleteSession before generating URL', async () => {
             const { createGitHubOAuthLoginUrl } = await import(
-                './auth/github-oauth.js'
+                './auth/oauth.js'
             );
             vi.mocked(createGitHubOAuthLoginUrl).mockReturnValue(
                 'http://github-oauth-url'
@@ -240,11 +251,11 @@ describe('createFirebaseEdgeServer', () => {
             );
 
             expect(result).toEqual({
-                error: expect.any(Error)
+                error: expect.any(FirebaseEdgeError)
             });
-            expect(result.error).toBeInstanceOf(Error);
-            expect((result.error as Error).message).toBe(
-                'No provider specified in state'
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect((result.error as FirebaseEdgeError).code).toBe(
+                FirebaseEdgeServerErrorInfo.EDGE_NO_PROVIDER_IN_STATE.code
             );
         });
 

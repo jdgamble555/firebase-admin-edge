@@ -19,7 +19,7 @@ describe('FirebaseAuth', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        mockFetch = vi.fn() as any;
+        mockFetch = vi.fn() as unknown as typeof globalThis.fetch;
         firebaseAuth = new FirebaseAuth(mockConfig, undefined, mockFetch);
     });
 

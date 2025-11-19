@@ -70,7 +70,8 @@ describe('createFirebaseEdgeServer', () => {
             cookies: {
                 getSession: mockGetSession,
                 saveSession: mockSaveSession
-            }
+            },
+            redirectUri: 'http://localhost'
         });
     });
 
@@ -82,7 +83,7 @@ describe('createFirebaseEdgeServer', () => {
             expect(server).toHaveProperty('getUser');
             expect(server).toHaveProperty('getGoogleLoginURL');
             expect(server).toHaveProperty('getGitHubLoginURL');
-            expect(server).toHaveProperty('signInWithCode');
+            expect(server).toHaveProperty('signInWithCallback');
             expect(server).toHaveProperty('getToken');
         });
 
@@ -95,7 +96,8 @@ describe('createFirebaseEdgeServer', () => {
                     getSession: mockGetSession,
                     saveSession: mockSaveSession,
                     sessionName: 'custom-session'
-                }
+                },
+                redirectUri: 'http://localhost'
             });
 
             customServer.signOut();
@@ -127,6 +129,7 @@ describe('createFirebaseEdgeServer', () => {
                     getSession: mockGetSession,
                     saveSession: mockSaveSession
                 },
+                redirectUri: 'http://localhost',
                 fetch: mockFetch
             });
 
@@ -142,7 +145,8 @@ describe('createFirebaseEdgeServer', () => {
                     getSession: mockGetSession,
                     saveSession: mockSaveSession
                 },
-                tenantId: 'test-tenant'
+                tenantId: 'test-tenant',
+                redirectUri: 'http://localhost'
             });
 
             expect(serverWithTenant).toBeDefined();
@@ -159,7 +163,8 @@ describe('createFirebaseEdgeServer', () => {
                     getSession: mockGetSession,
                     saveSession: mockSaveSession
                 },
-                tenantId: 'test-tenant-id'
+                tenantId: 'test-tenant-id',
+                redirectUri: 'http://localhost'
             });
 
             expect(vi.mocked(FirebaseAuth)).toHaveBeenCalledWith(
@@ -184,7 +189,8 @@ describe('createFirebaseEdgeServer', () => {
                 cookies: {
                     getSession: mockGetSession,
                     saveSession: mockSaveSession
-                }
+                },
+                redirectUri: 'http://localhost'
             });
 
             expect(vi.mocked(FirebaseAuth)).toHaveBeenCalledWith(
@@ -237,14 +243,12 @@ describe('createFirebaseEdgeServer', () => {
                 cookies: {
                     getSession: mockGetSession,
                     saveSession: mockSaveSession
-                }
+                },
+                redirectUri: 'http://localhost'
             });
 
             await expect(
-                serverWithoutGoogle.getGoogleLoginURL(
-                    'http://localhost',
-                    '/dashboard'
-                )
+                serverWithoutGoogle.getGoogleLoginURL('/dashboard')
             ).rejects.toThrow(
                 new FirebaseEdgeError(
                     FirebaseEdgeServerErrorInfo.EDGE_GOOGLE_PROVIDER_NOT_CONFIGURED
@@ -260,7 +264,7 @@ describe('createFirebaseEdgeServer', () => {
                 'http://oauth-url'
             );
 
-            await server.getGoogleLoginURL('http://localhost', '/dashboard');
+            await server.getGoogleLoginURL('/dashboard');
 
             expect(mockSaveSession).toHaveBeenCalledWith(
                 '__session',
@@ -279,14 +283,12 @@ describe('createFirebaseEdgeServer', () => {
                 cookies: {
                     getSession: mockGetSession,
                     saveSession: mockSaveSession
-                }
+                },
+                redirectUri: 'http://localhost'
             });
 
             await expect(
-                serverWithoutGitHub.getGitHubLoginURL(
-                    'http://localhost',
-                    '/dashboard'
-                )
+                serverWithoutGitHub.getGitHubLoginURL('/dashboard')
             ).rejects.toThrow(
                 new FirebaseEdgeError(
                     FirebaseEdgeServerErrorInfo.EDGE_GITHUB_PROVIDER_NOT_CONFIGURED
@@ -302,7 +304,7 @@ describe('createFirebaseEdgeServer', () => {
                 'http://github-oauth-url'
             );
 
-            await server.getGitHubLoginURL('http://localhost', '/dashboard');
+            await server.getGitHubLoginURL('/dashboard');
 
             expect(mockSaveSession).toHaveBeenCalledWith(
                 '__session',
@@ -312,13 +314,10 @@ describe('createFirebaseEdgeServer', () => {
         });
     });
 
-    describe('signInWithCode', () => {
+    describe('signInWithCallback', () => {
         it('returns error when no provider specified in state', async () => {
-            const result = await server.signInWithCode(
-                'auth-code',
-                'http://localhost',
-                null
-            );
+            const url = new URL('http://localhost/callback?code=auth-code');
+            const result = await server.signInWithCallback(url);
 
             expect(result).toEqual({
                 error: expect.any(FirebaseEdgeError)
@@ -330,14 +329,15 @@ describe('createFirebaseEdgeServer', () => {
         });
 
         it('handles invalid JSON state gracefully', async () => {
-            // We expect this to throw during JSON.parse, which is the current behavior
-            await expect(
-                server.signInWithCode(
-                    'auth-code',
-                    'http://localhost',
-                    'invalid-json'
-                )
-            ).rejects.toThrow();
+            const url = new URL(
+                'http://localhost/callback?code=auth-code&state=invalid-json'
+            );
+            const result = await server.signInWithCallback(url);
+
+            expect(result).toEqual({
+                error: expect.any(FirebaseEdgeError)
+            });
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
         });
     });
 

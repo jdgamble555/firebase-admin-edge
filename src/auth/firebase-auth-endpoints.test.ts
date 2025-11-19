@@ -565,13 +565,18 @@ describe('firebase-auth-endpoints', () => {
             expect(restFetchSpy).toHaveBeenCalledTimes(1);
 
             const [calledUrl, options] = restFetchSpy.mock
-                .calls[0] as unknown as [string, any];
+                .calls[0] as unknown as [string, unknown];
+
+            const opts = options as {
+                bearerToken?: string;
+                body?: { idToken?: string };
+            };
 
             expect(calledUrl).toBe(
                 `https://identitytoolkit.googleapis.com/v1/projects/${projectId}:createSessionCookie`
             );
-            expect(options.bearerToken).toBe(token);
-            expect(options.body.idToken).toBe(idToken);
+            expect(opts.bearerToken).toBe(token);
+            expect(opts.body?.idToken).toBe(idToken);
         });
 
         it('should call createSessionCookie tenant URL when tenant ID provided', async () => {
@@ -595,7 +600,7 @@ describe('firebase-auth-endpoints', () => {
             );
 
             expect(result.data).toBe('cookie-value');
-            const [calledUrl] = restFetchSpy.mock.calls[0] as [string, any];
+            const [calledUrl] = restFetchSpy.mock.calls[0] as [string, unknown];
 
             expect(calledUrl).toBe(
                 `https://identitytoolkit.googleapis.com/v1/projects/test-project/tenants/${tenantId}:createSessionCookie`
@@ -628,13 +633,18 @@ describe('firebase-auth-endpoints', () => {
             expect(restFetchSpy).toHaveBeenCalledTimes(1);
 
             const [calledUrl, options] = restFetchSpy.mock
-                .calls[0] as unknown as [string, any];
+                .calls[0] as unknown as [string, unknown];
+
+            const opts = options as {
+                bearerToken?: string;
+                body?: { localId?: string };
+            };
 
             expect(calledUrl).toBe(
                 `https://identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts:lookup`
             );
-            expect(options.bearerToken).toBe(token);
-            expect(options.body.localId).toBe(uid);
+            expect(opts.bearerToken).toBe(token);
+            expect(opts.body?.localId).toBe(uid);
         });
 
         it('should call accounts lookup tenant URL when tenant ID provided', async () => {
@@ -657,7 +667,7 @@ describe('firebase-auth-endpoints', () => {
             );
 
             expect(result.data).toEqual(mockUser);
-            const [calledUrl] = restFetchSpy.mock.calls[0] as [string, any];
+            const [calledUrl] = restFetchSpy.mock.calls[0] as [string, unknown];
 
             expect(calledUrl).toBe(
                 `https://identitytoolkit.googleapis.com/v1/projects/test-project/tenants/${tenantId}/accounts:lookup`

@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { exchangeCodeForGoogleIdToken, getToken } from './google-oauth.js';
+import type { ServiceAccount } from './firebase-types.js';
 import { FirebaseEdgeError } from './errors.js';
 import { GoogleErrorInfo } from './auth-error-codes.js';
 
@@ -185,7 +186,7 @@ describe('getToken', () => {
         private_key:
             '-----BEGIN PRIVATE KEY-----\nABC\n-----END PRIVATE KEY-----\n',
         token_uri: 'https://oauth2.googleapis.com/token'
-    } as any;
+    } as ServiceAccount;
 
     it('requests new token with signed JWT', async () => {
         const fakeFetch = vi.fn();

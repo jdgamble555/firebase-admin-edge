@@ -76,12 +76,14 @@ export function createFirebaseEdgeServer({
     providers,
     cookies,
     tenantId,
+    redirectUri,
     fetch
 }: {
     serviceAccount: ServiceAccount;
     firebaseConfig: FirebaseConfig;
     providers: ProviderConfig;
     cookies: CookieConfig;
+    redirectUri: string;
     tenantId?: string;
     fetch?: typeof globalThis.fetch;
 }) {
@@ -164,12 +166,11 @@ export function createFirebaseEdgeServer({
     /**
      * Generates a Google OAuth login URL and clears any existing session.
      *
-     * @param redirect_uri OAuth redirect URI
-     * @param path State parameter for the OAuth flow
+     * @param next State parameter for the OAuth flow
      * @returns Google OAuth login URL
      * @throws Error if Google provider not configured
      */
-    async function getGoogleLoginURL(redirect_uri: string, path: string) {
+    async function getGoogleLoginURL(next: string) {
         deleteSession();
 
         if (!providers.google) {
@@ -180,18 +181,17 @@ export function createFirebaseEdgeServer({
 
         const { client_id } = providers.google;
 
-        return createGoogleOAuthLoginUrl(redirect_uri, path, client_id);
+        return createGoogleOAuthLoginUrl(redirectUri, next, client_id);
     }
 
     /**
      * Generates a GitHub OAuth login URL and clears any existing session.
      *
-     * @param redirect_uri OAuth redirect URI
-     * @param path State parameter for the OAuth flow
+     * @param next State parameter for the OAuth flow
      * @returns GitHub OAuth login URL
      * @throws Error if GitHub provider not configured
      */
-    async function getGitHubLoginURL(redirect_uri: string, path: string) {
+    async function getGitHubLoginURL(next: string) {
         deleteSession();
 
         if (!providers.github) {
@@ -202,23 +202,35 @@ export function createFirebaseEdgeServer({
 
         const { client_id } = providers.github;
 
-        return createGitHubOAuthLoginUrl(redirect_uri, path, client_id);
+        return createGitHubOAuthLoginUrl(redirectUri, next, client_id);
     }
 
     /**
      * Completes OAuth flow by exchanging authorization code for a session.
      *
-     * @param code Authorization code from OAuth provider
-     * @param redirect_uri OAuth redirect URI (must match login URL)
-     * @param state OAuth state containing provider information
+     * @param url URL containing authorization code and state from OAuth callback
      * @returns Promise with error information
      */
-    async function signInWithCode(
-        code: string,
-        redirect_uri: string,
-        state: string | null = null
-    ) {
-        const provider = state ? JSON.parse(state).provider : null;
+    async function signInWithCallback(url: URL) {
+        const code = url.searchParams.get('code');
+        const state = url.searchParams.get('state');
+
+        if (!code) {
+            return {
+                error: new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_NO_AUTHORIZATION_CODE
+                )
+            };
+        }
+
+        let next = '/';
+        let provider = null;
+
+        try {
+            const parsed = state && JSON.parse(state);
+            next = parsed?.next ?? '/';
+            provider = parsed?.provider ?? null;
+        } catch {}
 
         if (!provider) {
             return {
@@ -236,7 +248,7 @@ export function createFirebaseEdgeServer({
             const { data: googleData, error: exchangeError } =
                 await exchangeCodeForGoogleIdToken(
                     code,
-                    redirect_uri,
+                    redirectUri,
                     client_id,
                     client_secret,
                     fetchImpl
@@ -263,7 +275,7 @@ export function createFirebaseEdgeServer({
             const { data: githubData, error: exchangeError } =
                 await exchangeCodeForGitHubIdToken(
                     code,
-                    redirect_uri,
+                    redirectUri,
                     client_id,
                     client_secret,
                     fetchImpl
@@ -297,7 +309,7 @@ export function createFirebaseEdgeServer({
         const providerId = provider === 'google' ? 'google.com' : 'github.com';
 
         const { data: signInData, error: signInError } =
-            await auth.signInWithProvider(oauthToken, redirect_uri, providerId);
+            await auth.signInWithProvider(oauthToken, redirectUri, providerId);
 
         if (signInError) {
             return {
@@ -357,6 +369,7 @@ export function createFirebaseEdgeServer({
         saveSession(sessionName, sessionCookie, COOKIE_OPTIONS);
 
         return {
+            data: next,
             error: null
         };
     }
@@ -434,7 +447,7 @@ export function createFirebaseEdgeServer({
         getUser,
         getGoogleLoginURL,
         getGitHubLoginURL,
-        signInWithCode,
+        signInWithCallback,
         getToken
     };
 }

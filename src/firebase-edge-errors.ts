@@ -14,6 +14,10 @@ export const FirebaseEdgeServerErrorInfo = {
     },
 
     // OAuth Flow Errors
+    EDGE_NO_AUTHORIZATION_CODE: {
+        message: 'No authorization code provided in OAuth callback.',
+        code: 'edge/no-authorization-code'
+    },
     EDGE_NO_PROVIDER_IN_STATE: {
         message: 'No provider specified in state.',
         code: 'edge/no-provider-in-state'

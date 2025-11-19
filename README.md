@@ -1,55 +1,58 @@
 # Firebase Admin Edge
 
-Use Firebase Admin on the edge:
+Lightweight helpers to use Firebase Admin features in edge runtimes and serverless
+environments. Built on top of the Firebase REST APIs; no long-running server
+processes or additional runtime dependencies required.
+
+Supported runtimes:
 
 - Vercel Edge
-- Cloudflare
-- Deno (Netlify Edge)
-- Bun (Vercel Bun)
+- Cloudflare Workers
+- Deno (Edge)
+- Bun
 - Node.js
-
-Uses Rest API under the hood and has no side effects.
 
 ## Installation
 
 ```bash
-npm i -D firebase-admin-edge
+npm i firebase-admin-edge
 ```
 
 ## Quick Start
 
-### Basic Setup
+### Basic setup
 
 ```typescript
 import { createFirebaseEdgeServer } from 'firebase-admin-edge';
 import { getCookie, setCookie } from 'your-framework-library';
 
+// Create the edge server once during initialization. Keep secrets out of
+// source control — load the `serviceAccount` and client secrets from
+// environment variables or a secret manager.
 export const firebaseServer = createFirebaseEdgeServer({
     serviceAccount: {
         type: 'service_account',
         project_id: 'your-project-id',
-        private_key_id: 'your-private-key-id',
+        private_key_id: 'your-private-key-id'
         ...
     },
     firebaseConfig: {
         apiKey: 'your-web-api-key',
-        authDomain: 'your-project.firebaseapp.com',
-        ...
+        authDomain: 'your-project.firebaseapp.com'
     },
     providers: {
         google: {
             client_id: 'your-google-oauth-client-id',
-            client_secret: 'your-google-oauth-client-secret',
-        },
-    },
-    cookies: {
-        getSession: (name) => {
-            return getCookie(name);
-        },
-        saveSession: (name, value, options) => {
-            return setCookie(name, value, options);
+            client_secret: 'your-google-oauth-client-secret'
         }
     },
+    cookies: {
+        // Provide your framework's cookie helpers
+        getSession: (name) => getCookie(name),
+        saveSession: (name, value, options) => setCookie(name, value, options)
+    },
+    // OAuth callback URL (registered with your provider)
+    redirectUri: 'https://example.com/auth/callback'
 });
 ```
 
@@ -59,43 +62,32 @@ export const firebaseServer = createFirebaseEdgeServer({
 const { data: user } = await firebaseServer.getUser();
 ```
 
-**Login with Code**
+**Login with code (callback)**
 
 ```ts
-// Currently only supports GitHub and Google login
-
-const code = url.searchParams.get('code');
-const state = url.searchParams.get('state');
-
-const { error } = await firebaseServer.signInWithCode(
-    code,
-    redirect_uri,
-    state
-);
+// Pass the request URL (the server extracts code and state from query params)
+const { error } = await firebaseServer.signInWithCallback(request.url);
 ```
 
 **Create Login URL**
 
 ```ts
-// You don't need a browser with this library!
+// Create an OAuth login URL for the `next` state.
+// `next` should be the URL or path to return to after successful login.
+const next = '/dashboard';
 
-// path - where you want to redirect to after login
-// redirect_uri - is the oAuth redirect url
+// Generate provider-specific login URLs (server uses configured redirectUri)
+const loginUrlGoogle = await firebaseServer.getGoogleLoginURL(next);
+const loginUrlGithub = await firebaseServer.getGitHubLoginURL(next);
 
-const loginUrl = await firebaseServer.getGoogleLoginURL(redirect_uri, path);
-
-// OR
-
-const loginURL = await firebaseServer.getGitHubLoginURL(redirect_uri, path);
-
-// Your framework redirect method
-redirect(302, loginUrl);
+// Redirect the user to the provider's login page
+redirect(302, loginUrlGoogle);
 ```
 
 **Logout**
 
 ```ts
-firebaseServer.signOut();
+await firebaseServer.signOut();
 
 // Your framework redirect method
 redirect(302, '/');
@@ -121,7 +113,7 @@ redirect(302, '/');
 - ☐ Get User
 - ☐ Update User
 - ☐ Delete User
-- ☐ Add / Remove Claims
+- ☐ Add / Remove Custom Claims
 - ☐ Get all Users / Pagination
 - ☐ All Providers
 - ☐ Ban Users
@@ -129,9 +121,7 @@ redirect(302, '/');
 
 ### Other TODO Notes
 
-- Cookie Name, Cookie Options, Callback Path, Debug
+- Cookie Name, Cookie Options, Debug
 - (enableTokenRefreshOnExpiredKidHeader ? cookieSignatureKeys ?)
-- loginWIthCodeFromURL(url)
-- next path?
 
 ## Then to DB, then Storage...

@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.20
+
+### Patch Changes
+
+- cb76f9b: add tenantId
+
 ## 1.0.19
 
 ### Patch Changes

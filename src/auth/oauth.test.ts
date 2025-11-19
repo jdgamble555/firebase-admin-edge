@@ -6,7 +6,7 @@ import {
 import { exchangeCodeForGitHubIdToken } from './github-oauth.js';
 import { exchangeCodeForGoogleIdToken, getToken } from './google-oauth.js';
 import { FirebaseEdgeError } from './errors.js';
-import { GitHubErrorInfo, GoogleErrorInfo } from './auth-error-codes.js';
+import { GitHubErrorInfo } from './auth-error-codes.js';
 
 const restFetchMock = vi.hoisted(() => vi.fn());
 const signJWTMock = vi.hoisted(() => vi.fn());

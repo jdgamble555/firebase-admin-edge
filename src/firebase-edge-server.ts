@@ -66,6 +66,7 @@ type CookieConfig = {
  * @param config.firebaseConfig Firebase client configuration
  * @param config.providers OAuth provider configurations (Google, GitHub, etc.)
  * @param config.cookies Cookie management functions
+ * @param config.tenantId Optional Firebase Auth tenant ID for multi-tenancy
  * @param config.fetch Optional custom fetch implementation
  * @returns Object with authentication methods
  */
@@ -74,12 +75,14 @@ export function createFirebaseEdgeServer({
     firebaseConfig,
     providers,
     cookies,
+    tenantId,
     fetch
 }: {
     serviceAccount: ServiceAccount;
     firebaseConfig: FirebaseConfig;
     providers: ProviderConfig;
     cookies: CookieConfig;
+    tenantId?: string;
     fetch?: typeof globalThis.fetch;
 }) {
     const sessionName = cookies.sessionName || DEFAULT_SESSION_NAME;
@@ -88,8 +91,12 @@ export function createFirebaseEdgeServer({
 
     const fetchImpl = fetch ?? globalThis.fetch;
 
-    const auth = new FirebaseAuth(firebaseConfig, fetchImpl);
-    const adminAuth = new FirebaseAdminAuth(serviceAccount, fetchImpl);
+    const auth = new FirebaseAuth(firebaseConfig, tenantId, fetchImpl);
+    const adminAuth = new FirebaseAdminAuth(
+        serviceAccount,
+        tenantId,
+        fetchImpl
+    );
 
     /**
      * Clears the session cookie
@@ -376,8 +383,10 @@ export function createFirebaseEdgeServer({
             };
         }
 
+        const claims = tenantId ? { tenant_id: tenantId } : {};
+
         const { data: signJWTData, error: signJWTError } =
-            await signJWTCustomToken(verifiedToken.sub, serviceAccount);
+            await signJWTCustomToken(verifiedToken.sub, serviceAccount, claims);
 
         if (signJWTError) {
             return {

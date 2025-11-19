@@ -114,8 +114,6 @@ redirect(302, '/');
 
 - ☐ LinkProvider (auto link?)
 - ☐ Unlink Provider
-- ☐ Create Error Classes
-- ☐ Tenants
 - ☐ App Check
 - ☐ Magic Link (auto save email?)
 - ☐ Email / Password
@@ -131,7 +129,7 @@ redirect(302, '/');
 
 ### Other TODO Notes
 
-- Cookie Name, Cookie Options, Callback Path, Debug, TenantId
+- Cookie Name, Cookie Options, Callback Path, Debug
 - (enableTokenRefreshOnExpiredKidHeader ? cookieSignatureKeys ?)
 - loginWIthCodeFromURL(url)
 - next path?

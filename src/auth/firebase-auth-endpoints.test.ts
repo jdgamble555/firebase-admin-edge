@@ -98,6 +98,7 @@ describe('firebase-auth-endpoints', () => {
             const result = await createAuthUri(
                 'https://redirect.com',
                 API_KEY,
+                undefined,
                 mockFetch
             );
 
@@ -110,6 +111,40 @@ describe('firebase-auth-endpoints', () => {
                     body: {
                         continueUri: 'https://redirect.com',
                         providerId: 'google.com'
+                    },
+                    params: { key: API_KEY },
+                    global: { fetch: mockFetch }
+                })
+            );
+        });
+
+        it('should create auth URI with tenant ID', async () => {
+            const mockResponse = { authUri: 'https://auth.example.com' };
+            const tenantId = 'tenant-123';
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await createAuthUri(
+                'https://redirect.com',
+                API_KEY,
+                tenantId,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(result.error).toBeNull();
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                'https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri',
+                expect.objectContaining({
+                    body: {
+                        continueUri: 'https://redirect.com',
+                        providerId: 'google.com',
+                        tenantId: tenantId
                     },
                     params: { key: API_KEY },
                     global: { fetch: mockFetch }
@@ -135,6 +170,7 @@ describe('firebase-auth-endpoints', () => {
                 'https://request.com',
                 'google.com',
                 API_KEY,
+                undefined,
                 mockFetch
             );
 
@@ -153,6 +189,80 @@ describe('firebase-auth-endpoints', () => {
                 })
             );
         });
+
+        it('should sign in with IDP and tenant ID', async () => {
+            const mockResponse = {
+                idToken: 'firebase-token',
+                refreshToken: 'refresh'
+            };
+            const tenantId = 'tenant-456';
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await signInWithIdp(
+                'provider-token',
+                'https://request.com',
+                'google.com',
+                API_KEY,
+                tenantId,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(result.error).toBeNull();
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                'https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp',
+                expect.objectContaining({
+                    body: {
+                        postBody:
+                            'id_token=provider-token&providerId=google.com',
+                        requestUri: 'https://request.com',
+                        returnSecureToken: true,
+                        returnIdpCredential: true,
+                        tenantId: tenantId
+                    }
+                })
+            );
+        });
+
+        it('should use access_token for GitHub provider', async () => {
+            const mockResponse = {
+                idToken: 'firebase-token',
+                refreshToken: 'refresh'
+            };
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await signInWithIdp(
+                'github-token',
+                'https://request.com',
+                'github.com',
+                API_KEY,
+                undefined,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                'https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp',
+                expect.objectContaining({
+                    body: expect.objectContaining({
+                        postBody:
+                            'access_token=github-token&providerId=github.com'
+                    })
+                })
+            );
+        });
     });
 
     describe('signInWithCustomToken', () => {
@@ -167,11 +277,44 @@ describe('firebase-auth-endpoints', () => {
             const result = await signInWithCustomToken(
                 'jwt-token',
                 API_KEY,
+                undefined,
                 mockFetch
             );
 
             expect(result.data).toEqual(mockResponse);
             expect(result.error).toBeNull();
+        });
+
+        it('should sign in with custom token and tenant ID', async () => {
+            const mockResponse = { idToken: 'firebase-token' };
+            const tenantId = 'tenant-789';
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await signInWithCustomToken(
+                'jwt-token',
+                API_KEY,
+                tenantId,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(result.error).toBeNull();
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                'https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken',
+                expect.objectContaining({
+                    body: {
+                        token: 'jwt-token',
+                        returnSecureToken: true,
+                        tenantId: tenantId
+                    }
+                })
+            );
         });
     });
 
@@ -188,11 +331,45 @@ describe('firebase-auth-endpoints', () => {
                 'user-123',
                 ACCESS_TOKEN,
                 PROJECT_ID,
+                undefined,
                 mockFetch
             );
 
             expect(result.data).toEqual(mockUser);
             expect(result.error).toBeNull();
+        });
+
+        it('should get account info with tenant ID', async () => {
+            const mockUser = { localId: 'user-123', email: 'test@example.com' };
+            const tenantId = 'tenant-abc';
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: { users: [mockUser] },
+                    error: null
+                });
+
+            const result = await getAccountInfoByUid(
+                'user-123',
+                ACCESS_TOKEN,
+                PROJECT_ID,
+                tenantId,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockUser);
+            expect(result.error).toBeNull();
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                `https://identitytoolkit.googleapis.com/v1/projects/${PROJECT_ID}/tenants/${tenantId}/accounts:lookup`,
+                expect.objectContaining({
+                    body: {
+                        localId: 'user-123',
+                        tenantId: tenantId
+                    },
+                    bearerToken: ACCESS_TOKEN
+                })
+            );
         });
 
         it('should return null when no users found', async () => {
@@ -227,6 +404,7 @@ describe('firebase-auth-endpoints', () => {
                 ACCESS_TOKEN,
                 PROJECT_ID,
                 undefined,
+                undefined,
                 mockFetch
             );
 
@@ -238,6 +416,40 @@ describe('firebase-auth-endpoints', () => {
                         // default is 14 days in ms converted to seconds
                         validDuration: 1209600
                     })
+                })
+            );
+        });
+
+        it('should create session cookie with tenant ID', async () => {
+            const mockResponse = { sessionCookie: 'cookie-value' };
+            const tenantId = 'tenant-def';
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await createSessionCookie(
+                'id-token',
+                ACCESS_TOKEN,
+                PROJECT_ID,
+                3600000, // 1 hour in ms
+                tenantId,
+                mockFetch
+            );
+
+            expect(result.data).toBe('cookie-value');
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                `https://identitytoolkit.googleapis.com/v1/projects/${PROJECT_ID}/tenants/${tenantId}:createSessionCookie`,
+                expect.objectContaining({
+                    body: {
+                        idToken: 'id-token',
+                        validDuration: 3600, // converted to seconds
+                        tenantId: tenantId
+                    },
+                    bearerToken: ACCESS_TOKEN
                 })
             );
         });
@@ -255,6 +467,7 @@ describe('firebase-auth-endpoints', () => {
                 ACCESS_TOKEN,
                 PROJECT_ID,
                 3600, // 1 hour in seconds
+                undefined,
                 mockFetch
             );
 
@@ -324,7 +537,7 @@ describe('firebase-auth-endpoints', () => {
             );
         });
     });
-    describe('createAdminIdentityURL (indirectly via createSessionCookie)', () => {
+    describe('createAdminIdentityURL (indirectly via functions)', () => {
         it('should call createSessionCookie URL without /accounts segment', async () => {
             const mockResponse = { sessionCookie: 'cookie-value' };
 
@@ -344,6 +557,7 @@ describe('firebase-auth-endpoints', () => {
                 token,
                 projectId,
                 3600_000,
+                undefined,
                 vi.fn()
             );
 
@@ -358,6 +572,34 @@ describe('firebase-auth-endpoints', () => {
             );
             expect(options.bearerToken).toBe(token);
             expect(options.body.idToken).toBe(idToken);
+        });
+
+        it('should call createSessionCookie tenant URL when tenant ID provided', async () => {
+            const mockResponse = { sessionCookie: 'cookie-value' };
+            const tenantId = 'tenant-test';
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await createSessionCookie(
+                'id-token',
+                'access-token',
+                'test-project',
+                3600_000,
+                tenantId,
+                vi.fn()
+            );
+
+            expect(result.data).toBe('cookie-value');
+            const [calledUrl] = restFetchSpy.mock.calls[0] as [string, any];
+
+            expect(calledUrl).toBe(
+                `https://identitytoolkit.googleapis.com/v1/projects/test-project/tenants/${tenantId}:createSessionCookie`
+            );
         });
 
         it('should call accounts lookup URL with /accounts segment via getAccountInfoByUid', async () => {
@@ -378,6 +620,7 @@ describe('firebase-auth-endpoints', () => {
                 uid,
                 token,
                 projectId,
+                undefined,
                 vi.fn()
             );
 
@@ -392,6 +635,33 @@ describe('firebase-auth-endpoints', () => {
             );
             expect(options.bearerToken).toBe(token);
             expect(options.body.localId).toBe(uid);
+        });
+
+        it('should call accounts lookup tenant URL when tenant ID provided', async () => {
+            const mockUser = { localId: 'user-123', email: 'test@example.com' };
+            const tenantId = 'tenant-lookup';
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: { users: [mockUser] },
+                    error: null
+                });
+
+            const result = await getAccountInfoByUid(
+                'user-123',
+                'access-token',
+                'test-project',
+                tenantId,
+                vi.fn()
+            );
+
+            expect(result.data).toEqual(mockUser);
+            const [calledUrl] = restFetchSpy.mock.calls[0] as [string, any];
+
+            expect(calledUrl).toBe(
+                `https://identitytoolkit.googleapis.com/v1/projects/test-project/tenants/${tenantId}/accounts:lookup`
+            );
         });
     });
 
@@ -411,6 +681,7 @@ describe('firebase-auth-endpoints', () => {
                 ACCESS_TOKEN,
                 PROJECT_ID,
                 1209600000, // 14 days in ms
+                undefined, // tenantId
                 mockFetch
             );
 

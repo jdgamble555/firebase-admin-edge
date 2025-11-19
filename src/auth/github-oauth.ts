@@ -1,7 +1,6 @@
 import { restFetch } from '../rest-fetch.js';
-import { FirebaseEdgeError, ensureError } from './errors.js';
+import { FirebaseEdgeError } from './errors.js';
 import { GitHubErrorInfo } from './auth-error-codes.js';
-import type { ServiceAccount } from './firebase-types.js';
 
 export type GithubTokenResponse = {
     access_token: string;

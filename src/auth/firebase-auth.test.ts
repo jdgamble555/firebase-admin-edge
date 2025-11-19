@@ -20,7 +20,7 @@ describe('FirebaseAuth', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockFetch = vi.fn() as any;
-        firebaseAuth = new FirebaseAuth(mockConfig, mockFetch);
+        firebaseAuth = new FirebaseAuth(mockConfig, undefined, mockFetch);
     });
 
     describe('signInWithProvider', () => {
@@ -51,6 +51,7 @@ describe('FirebaseAuth', () => {
                 'http://localhost',
                 'google.com',
                 'test-api-key',
+                undefined,
                 mockFetch
             );
         });
@@ -121,6 +122,7 @@ describe('FirebaseAuth', () => {
             expect(endpoints.signInWithCustomToken).toHaveBeenCalledWith(
                 'customToken',
                 'test-api-key',
+                undefined,
                 mockFetch
             );
         });

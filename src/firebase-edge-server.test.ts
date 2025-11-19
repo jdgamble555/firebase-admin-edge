@@ -15,6 +15,10 @@ vi.mock('./auth/oauth.js');
 vi.mock('./auth/google-oauth.js');
 vi.mock('./auth/github-oauth.js');
 
+// Import the mocked classes to verify constructor calls
+const { FirebaseAdminAuth } = await import('./auth/firebase-admin-auth.js');
+const { FirebaseAuth } = await import('./auth/firebase-auth.js');
+
 const mockServiceAccount: ServiceAccount = {
     type: 'service_account',
     project_id: 'test-project',
@@ -127,6 +131,72 @@ describe('createFirebaseEdgeServer', () => {
             });
 
             expect(customServer).toBeDefined();
+        });
+
+        it('accepts tenant ID parameter', () => {
+            const serverWithTenant = createFirebaseEdgeServer({
+                serviceAccount: mockServiceAccount,
+                firebaseConfig: mockFirebaseConfig,
+                providers: mockProviders,
+                cookies: {
+                    getSession: mockGetSession,
+                    saveSession: mockSaveSession
+                },
+                tenantId: 'test-tenant'
+            });
+
+            expect(serverWithTenant).toBeDefined();
+        });
+
+        it('passes tenant ID to auth constructors', () => {
+            vi.clearAllMocks();
+
+            createFirebaseEdgeServer({
+                serviceAccount: mockServiceAccount,
+                firebaseConfig: mockFirebaseConfig,
+                providers: mockProviders,
+                cookies: {
+                    getSession: mockGetSession,
+                    saveSession: mockSaveSession
+                },
+                tenantId: 'test-tenant-id'
+            });
+
+            expect(vi.mocked(FirebaseAuth)).toHaveBeenCalledWith(
+                mockFirebaseConfig,
+                'test-tenant-id',
+                globalThis.fetch
+            );
+            expect(vi.mocked(FirebaseAdminAuth)).toHaveBeenCalledWith(
+                mockServiceAccount,
+                'test-tenant-id',
+                globalThis.fetch
+            );
+        });
+
+        it('passes undefined tenant ID when not provided', () => {
+            vi.clearAllMocks();
+
+            createFirebaseEdgeServer({
+                serviceAccount: mockServiceAccount,
+                firebaseConfig: mockFirebaseConfig,
+                providers: mockProviders,
+                cookies: {
+                    getSession: mockGetSession,
+                    saveSession: mockSaveSession
+                }
+            });
+
+            expect(vi.mocked(FirebaseAuth)).toHaveBeenCalledWith(
+                mockFirebaseConfig,
+                undefined,
+                globalThis.fetch
+            );
+            expect(vi.mocked(FirebaseAdminAuth)).toHaveBeenCalledWith(
+                mockServiceAccount,
+                undefined,
+                globalThis.fetch
+            );
         });
     });
 

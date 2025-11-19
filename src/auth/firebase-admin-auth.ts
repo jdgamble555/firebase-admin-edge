@@ -18,6 +18,7 @@ import {
 export class FirebaseAdminAuth {
     constructor(
         private serviceAccountKey: ServiceAccount,
+        private tenantId?: string,
         private fetch?: typeof globalThis.fetch
     ) {}
 
@@ -52,6 +53,7 @@ export class FirebaseAdminAuth {
             uid,
             token.access_token,
             this.serviceAccountKey.project_id,
+            this.tenantId,
             this.fetch
         );
 
@@ -92,6 +94,24 @@ export class FirebaseAdminAuth {
                     FirebaseAdminAuthErrorInfo.ADMIN_ID_TOKEN_DECODE_FAILED
                 )
             };
+        }
+
+        // Validate tenant ID if specified
+        if (this.tenantId) {
+            const tokenTenantId = decodedIdToken.firebase?.tenant;
+            if (tokenTenantId !== this.tenantId) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_ID_TOKEN_VERIFY_FAILED,
+                        {
+                            cause: new Error(
+                                `Token tenant ID '${tokenTenantId}' does not match expected '${this.tenantId}'`
+                            )
+                        }
+                    )
+                };
+            }
         }
 
         if (!checkRevoked) {
@@ -186,6 +206,7 @@ export class FirebaseAdminAuth {
             token.access_token,
             this.serviceAccountKey.project_id,
             expiresIn,
+            this.tenantId,
             this.fetch
         );
 
@@ -225,6 +246,38 @@ export class FirebaseAdminAuth {
             };
         }
 
+        if (!data) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_SESSION_COOKIE_VERIFY_FAILED,
+                    {
+                        cause: new Error(
+                            'No data returned from session cookie verification'
+                        )
+                    }
+                )
+            };
+        }
+
+        // Validate tenant ID if specified
+        if (this.tenantId) {
+            const tokenTenantId = data.firebase?.tenant;
+            if (tokenTenantId !== this.tenantId) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_SESSION_COOKIE_VERIFY_FAILED,
+                        {
+                            cause: new Error(
+                                `Token tenant ID '${tokenTenantId}' does not match expected '${this.tenantId}'`
+                            )
+                        }
+                    )
+                };
+            }
+        }
+
         if (!checkRevoked) {
             return {
                 data,
@@ -255,10 +308,14 @@ export class FirebaseAdminAuth {
     }
 
     async createCustomToken(uid: string, developerClaims: object = {}) {
+        const claims = this.tenantId
+            ? { ...developerClaims, tenant_id: this.tenantId }
+            : developerClaims;
+
         const { data, error } = await signJWTCustomToken(
             uid,
             this.serviceAccountKey,
-            developerClaims
+            claims
         );
 
         if (error) {

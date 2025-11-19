@@ -9,6 +9,7 @@ import { FirebaseAuthErrorInfo } from './auth-error-codes.js';
 export class FirebaseAuth {
     constructor(
         private firebase_config: FirebaseConfig,
+        private tenantId?: string,
         private fetch?: typeof globalThis.fetch
     ) {}
 
@@ -24,6 +25,7 @@ export class FirebaseAuth {
                     requestUri,
                     providerId,
                     this.firebase_config.apiKey,
+                    this.tenantId,
                     this.fetch
                 );
 
@@ -76,6 +78,7 @@ export class FirebaseAuth {
                 await signInWithCustomToken(
                     customToken,
                     this.firebase_config.apiKey,
+                    this.tenantId,
                     this.fetch
                 );
 

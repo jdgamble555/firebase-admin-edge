@@ -165,6 +165,7 @@ describe('FirebaseAdminAuth', () => {
                 'uid-1',
                 'test-access-token',
                 'test-project',
+                undefined,
                 undefined
             );
             expect(result.data).toEqual(mockUserRecord);
@@ -417,6 +418,7 @@ describe('FirebaseAdminAuth', () => {
                 'test-access-token',
                 'test-project',
                 3600,
+                undefined,
                 undefined
             );
             expect(result.data).toBeNull();

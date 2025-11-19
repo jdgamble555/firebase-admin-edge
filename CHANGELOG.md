@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.19
+
+### Patch Changes
+
+- ace0e86: New Error Classes
+
 ## 1.0.18
 
 ### Patch Changes

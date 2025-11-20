@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.22
+
+### Patch Changes
+
+- e12b365: add link and unlink provider endpoints
+
 ## 1.0.21
 
 ### Patch Changes

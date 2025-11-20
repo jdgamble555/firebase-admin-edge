@@ -95,33 +95,40 @@ redirect(302, '/');
 
 ## Features
 
-- ✅ **Edge Runtime Compatible** - Works in Vercel Edge, Cloudflare Workers, Deno, and Bun
-- ✅ **Zero Dependencies** - Uses only fetch API and jose
-- ✅ **TypeScript Support** - Full type safety and IntelliSense
-- ✅ **Session Management** - Secure HTTP-only cookies
-- ✅ **Google OAuth** - Complete OAuth 2.0 flow
-- ✅ **Token Management** - Generate client tokens from server sessions
+✅ **Edge Runtime Compatible** - Works in Vercel Edge, Cloudflare Workers, Deno, and Bun
+✅ **Zero Dependencies** - Uses only fetch API and jose
+✅ **TypeScript Support** - Full type safety and IntelliSense
+✅ **Session Management** - Secure HTTP-only cookies
+✅ **Google OAuth** - Complete OAuth 2.0 flow
+✅ **Token Management** - Generate client tokens from server sessions
 
-## Currently Working On - (in no particular order)
+## Firebase Auth Todo
 
-- ☐ LinkProvider (auto link?)
-- ☐ Unlink Provider
-- ☐ App Check
-- ☐ Magic Link (auto save email?)
-- ☐ Email / Password
-- ☐ Custom oAuth Scopes
-- ☐ Get User
-- ☐ Update User
-- ☐ Delete User
-- ☐ Add / Remove Custom Claims
-- ☐ Get all Users / Pagination
-- ☐ All Providers
-- ☐ Ban Users
-- ☐ RBAC
+☐ Link and Unlink Providers
+☐ Magic Link Login (auto save email option)
+☐ Email / Password / Annonymous Login
+☐ Reset Password
+☐ Change Email
+☐ Get User By ID
+☐ Get All Users with Order By and Pagination
+☐ Create User
+☐ Delete
+☐ Update User
+☐ Add / Remove Custom Claims
+☐ Disable User (Ban User)
+☐ Add All Providers
+☐ Add App Check
+☐ Ban Users
+☐ RBAC
 
-### Other TODO Notes
+## Firestore Todo
+☐ Get Document By ID
+☐ Create Document
+☐ Update Document (merge option)
+☐ Delete Document
+☐ Query Documents
 
-- Cookie Name, Cookie Options, Debug
-- (enableTokenRefreshOnExpiredKidHeader ? cookieSignatureKeys ?)
-
-## Then to DB, then Storage...
+## Firebase Storage
+☐ Create File
+☐ Delete File
+☐ Get File

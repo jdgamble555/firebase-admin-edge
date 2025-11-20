@@ -16,8 +16,6 @@ import {
 import { FirebaseEdgeError } from './auth/errors.js';
 import { FirebaseEdgeServerErrorInfo } from './firebase-edge-errors.js';
 
-const DEFAULT_SESSION_NAME = '__session';
-
 const COOKIE_OPTIONS = {
     httpOnly: true,
     secure: true,
@@ -55,7 +53,6 @@ type ProviderConfig = Partial<
 type CookieConfig = {
     getSession: GetSession;
     saveSession: SetSession;
-    sessionName?: string;
 };
 
 /**
@@ -66,6 +63,7 @@ type CookieConfig = {
  * @param config.firebaseConfig Firebase client configuration
  * @param config.providers OAuth provider configurations (Google, GitHub, etc.)
  * @param config.cookies Cookie management functions
+ * @param config.cookieName Optional custom session cookie name (defaults to '__session')
  * @param config.tenantId Optional Firebase Auth tenant ID for multi-tenancy
  * @param config.fetch Optional custom fetch implementation
  * @returns Object with authentication methods
@@ -75,6 +73,7 @@ export function createFirebaseEdgeServer({
     firebaseConfig,
     providers,
     cookies,
+    cookieName,
     tenantId,
     redirectUri,
     autoLinkProviders,
@@ -84,12 +83,13 @@ export function createFirebaseEdgeServer({
     firebaseConfig: FirebaseConfig;
     providers: ProviderConfig;
     cookies: CookieConfig;
+    cookieName?: string;
     redirectUri: string;
     tenantId?: string;
     autoLinkProviders?: boolean;
     fetch?: typeof globalThis.fetch;
 }) {
-    const sessionName = cookies.sessionName || DEFAULT_SESSION_NAME;
+    const _cookieName = cookieName || '__session';
     const getSession = cookies.getSession;
     const saveSession = cookies.saveSession;
 
@@ -112,7 +112,7 @@ export function createFirebaseEdgeServer({
      * @internal
      */
     function deleteSession() {
-        saveSession(sessionName, '', {
+        saveSession(_cookieName, '', {
             ...COOKIE_OPTIONS,
             maxAge: 0
         });
@@ -134,7 +134,7 @@ export function createFirebaseEdgeServer({
      * @returns Promise with user data and error
      */
     async function getUser(checkRevoked: boolean = false) {
-        const sessionCookie = await getSession(sessionName);
+        const sessionCookie = await getSession(_cookieName);
 
         if (!sessionCookie) {
             return {
@@ -411,7 +411,7 @@ export function createFirebaseEdgeServer({
             };
         }
 
-        saveSession(sessionName, sessionCookie, COOKIE_OPTIONS);
+        saveSession(_cookieName, sessionCookie, COOKIE_OPTIONS);
 
         return {
             data: next,

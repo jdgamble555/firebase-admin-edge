@@ -87,16 +87,16 @@ describe('createFirebaseEdgeServer', () => {
             expect(server).toHaveProperty('getToken');
         });
 
-        it('uses custom session name when provided', () => {
+        it('uses custom cookie name when provided', () => {
             const customServer = createFirebaseEdgeServer({
                 serviceAccount: mockServiceAccount,
                 firebaseConfig: mockFirebaseConfig,
                 providers: mockProviders,
                 cookies: {
                     getSession: mockGetSession,
-                    saveSession: mockSaveSession,
-                    sessionName: 'custom-session'
+                    saveSession: mockSaveSession
                 },
+                cookieName: 'custom-session',
                 redirectUri: 'http://localhost'
             });
 

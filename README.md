@@ -95,42 +95,42 @@ redirect(302, '/');
 
 ## Features
 
-✅ **Edge Runtime Compatible** - Works in Vercel Edge, Cloudflare Workers, Deno, and Bun
-✅ **Zero Dependencies** - Uses only fetch API and jose
-✅ **TypeScript Support** - Full type safety and IntelliSense
-✅ **Session Management** - Secure HTTP-only cookies
-✅ **Google OAuth** - Complete OAuth 2.0 flow
-✅ **Token Management** - Generate client tokens from server sessions
+- ✅ **Edge Runtime Compatible** - Works in Vercel Edge, Cloudflare Workers, Deno, and Bun
+- ✅ **Zero Dependencies** - Uses only fetch API and jose
+- ✅ **TypeScript Support** - Full type safety and IntelliSense
+- ✅ **Session Management** - Secure HTTP-only cookies
+- ✅ **Google OAuth** - Complete OAuth 2.0 flow
+- ✅ **Token Management** - Generate client tokens from server sessions
 
 ## Firebase Auth Todo
 
-☐ Link and Unlink Providers  
-☐ Magic Link Login (auto save email option)  
-☐ Email / Password / Annonymous Login  
-☐ Reset Password  
-☐ Change Email  
-☐ Get User By ID  
-☐ Get All Users with Order By and Pagination  
-☐ Create User  
-☐ Delete  
-☐ Update User  
-☐ Add / Remove Custom Claims  
-☐ Disable User (Ban User)  
-☐ Add All Providers  
-☐ Add App Check  
-☐ Ban Users  
-☐ RBAC
+- ☐ Link and Unlink Providers
+- ☐ Magic Link Login (auto save email option)
+- ☐ Email / Password / Annonymous Login
+- ☐ Reset Password
+- ☐ Change Email
+- ☐ Get User By ID
+- ☐ Get All Users with Order By and Pagination
+- ☐ Create User
+- ☐ Delete
+- ☐ Update User
+- ☐ Add / Remove Custom Claims
+- ☐ Disable User (Ban User)
+- ☐ Add All Providers
+- ☐ Add App Check
+- ☐ Ban Users
+- ☐ RBAC
 
 ## Firestore Todo
 
-☐ Get Document By ID  
-☐ Create Document  
-☐ Update Document (merge option)  
-☐ Delete Document  
-☐ Query Documents
+- ☐ Get Document By ID
+- ☐ Create Document
+- ☐ Update Document (merge option)
+- ☐ Delete Document
+- ☐ Query Documents
 
 ## Firebase Storage
 
-☐ Create File  
-☐ Delete File  
-☐ Get File
+- ☐ Create File
+- ☐ Delete File
+- ☐ Get File

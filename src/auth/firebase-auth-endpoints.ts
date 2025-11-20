@@ -3,11 +3,13 @@ import type {
     FirebaseIdpSignInResponse,
     FirebaseRefreshTokenResponse,
     FirebaseRestError,
+    FirebaseUpdateAccountResponse,
     UserRecord
 } from './firebase-types.js';
 import { restFetch } from '../rest-fetch.js';
 import type { JsonWebKey } from 'crypto';
 import { mapFirebaseError } from './auth-endpoint-errors.js';
+import type { FirebaseEdgeError } from './errors.js';
 
 // Functions
 
@@ -255,6 +257,187 @@ export async function getPublicKeys(fetchFn?: typeof globalThis.fetch) {
     >(url, {
         global: { fetch: fetchFn },
         method: 'GET'
+    });
+
+    return {
+        data,
+        error: error ? mapFirebaseError(error.error) : null
+    };
+}
+
+export async function sendOobCode(
+    requestType: 'PASSWORD_RESET',
+    key: string,
+    options: {
+        email: string;
+        locale?: string;
+        continueUrl?: string;
+    },
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+): Promise<{ data: { email: string } | null; error: FirebaseEdgeError | null }>;
+
+export async function sendOobCode(
+    requestType: 'VERIFY_EMAIL',
+    key: string,
+    options: {
+        idToken: string;
+        locale?: string;
+        continueUrl?: string;
+    },
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+): Promise<{ data: { email: string } | null; error: FirebaseEdgeError | null }>;
+
+export async function sendOobCode(
+    requestType: 'PASSWORD_RESET' | 'VERIFY_EMAIL',
+    key: string,
+    options: {
+        email?: string;
+        idToken?: string;
+        locale?: string;
+        continueUrl?: string;
+    },
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+) {
+    const url = createIdentityURL('sendOobCode');
+
+    const body: Record<string, any> = {
+        requestType,
+        canHandleCodeInApp: false,
+        ...(options.email && { email: options.email }),
+        ...(options.idToken && { idToken: options.idToken }),
+        ...(options.continueUrl && { continueUrl: options.continueUrl }),
+        ...(tenantId && { tenantId })
+    };
+
+    const headers: Record<string, string> = {};
+    if (options.locale) {
+        headers['X-Firebase-Locale'] = options.locale;
+    }
+
+    const { data, error } = await restFetch<
+        { email: string },
+        FirebaseRestError
+    >(url, {
+        global: { fetch: fetchFn },
+        body,
+        params: {
+            key
+        },
+        headers
+    });
+
+    return {
+        data,
+        error: error ? mapFirebaseError(error.error) : null
+    };
+}
+
+export async function signInWithEmailLink(
+    oobCode: string,
+    email: string,
+    key: string,
+    idToken?: string,
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+) {
+    const url = createIdentityURL('signInWithEmailLink');
+
+    const body = {
+        oobCode,
+        email,
+        ...(idToken && { idToken }),
+        ...(tenantId && { tenantId })
+    };
+
+    const { data, error } = await restFetch<
+        FirebaseIdpSignInResponse,
+        FirebaseRestError
+    >(url, {
+        global: { fetch: fetchFn },
+        body,
+        params: {
+            key
+        }
+    });
+
+    return {
+        data,
+        error: error ? mapFirebaseError(error.error) : null
+    };
+}
+
+export async function linkWithOAuthCredential(
+    idToken: string,
+    providerIdToken: string,
+    requestUri: string,
+    providerId: string,
+    key: string,
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+) {
+    const url = createIdentityURL('signInWithIdp');
+
+    const tokenField =
+        providerId === 'github.com' ? 'access_token' : 'id_token';
+
+    const postBody = new URLSearchParams({
+        [tokenField]: providerIdToken,
+        providerId
+    }).toString();
+
+    const body = {
+        idToken,
+        postBody,
+        requestUri,
+        returnSecureToken: true as const,
+        returnIdpCredential: true as const,
+        ...(tenantId && { tenantId })
+    };
+
+    const { data, error } = await restFetch<
+        FirebaseIdpSignInResponse,
+        FirebaseRestError
+    >(url, {
+        global: { fetch: fetchFn },
+        body,
+        params: {
+            key
+        }
+    });
+
+    return {
+        data,
+        error: error ? mapFirebaseError(error.error) : null
+    };
+}
+
+export async function unlinkProvider(
+    idToken: string,
+    providerId: string,
+    key: string,
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+) {
+    const url = createIdentityURL('update');
+
+    const body = {
+        idToken,
+        deleteProvider: [providerId],
+        ...(tenantId && { tenantId })
+    };
+
+    const { data, error } = await restFetch<
+        FirebaseUpdateAccountResponse,
+        FirebaseRestError
+    >(url, {
+        global: { fetch: fetchFn },
+        body,
+        params: {
+            key
+        }
     });
 
     return {

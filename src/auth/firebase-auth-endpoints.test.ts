@@ -7,7 +7,11 @@ import {
     getAccountInfoByUid,
     createSessionCookie,
     getJWKs,
-    getPublicKeys
+    getPublicKeys,
+    sendOobCode,
+    signInWithEmailLink,
+    linkWithOAuthCredential,
+    unlinkProvider
 } from './firebase-auth-endpoints.js';
 import * as restFetch from '../rest-fetch.js';
 import { FirebaseEdgeError, FirebaseEndpointErrorInfo } from './errors.js';
@@ -704,6 +708,539 @@ describe('firebase-auth-endpoints', () => {
                     })
                 })
             );
+        });
+    });
+
+    describe('sendOobCode', () => {
+        it('should send password reset email successfully', async () => {
+            const mockResponse = { email: 'test@example.com' };
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await sendOobCode(
+                'PASSWORD_RESET',
+                API_KEY,
+                { email: 'test@example.com' },
+                undefined,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(result.error).toBeNull();
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                'https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode',
+                expect.objectContaining({
+                    body: expect.objectContaining({
+                        requestType: 'PASSWORD_RESET',
+                        email: 'test@example.com',
+                        canHandleCodeInApp: false
+                    }),
+                    params: { key: API_KEY }
+                })
+            );
+        });
+
+        it('should send verification email successfully', async () => {
+            const mockResponse = { email: 'test@example.com' };
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await sendOobCode(
+                'VERIFY_EMAIL',
+                API_KEY,
+                { idToken: 'test-id-token' },
+                undefined,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(result.error).toBeNull();
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                'https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode',
+                expect.objectContaining({
+                    body: expect.objectContaining({
+                        requestType: 'VERIFY_EMAIL',
+                        idToken: 'test-id-token',
+                        canHandleCodeInApp: false
+                    })
+                })
+            );
+        });
+
+        it('should include continue URL when provided', async () => {
+            const mockResponse = { email: 'test@example.com' };
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await sendOobCode(
+                'PASSWORD_RESET',
+                API_KEY,
+                {
+                    email: 'test@example.com',
+                    continueUrl: 'https://example.com/reset'
+                },
+                undefined,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({
+                    body: expect.objectContaining({
+                        continueUrl: 'https://example.com/reset'
+                    })
+                })
+            );
+        });
+
+        it('should include locale header when provided', async () => {
+            const mockResponse = { email: 'test@example.com' };
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await sendOobCode(
+                'PASSWORD_RESET',
+                API_KEY,
+                { email: 'test@example.com', locale: 'es' },
+                undefined,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({
+                    headers: { 'X-Firebase-Locale': 'es' }
+                })
+            );
+        });
+
+        it('should include tenant ID when provided', async () => {
+            const mockResponse = { email: 'test@example.com' };
+            const tenantId = 'tenant-123';
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await sendOobCode(
+                'PASSWORD_RESET',
+                API_KEY,
+                { email: 'test@example.com' },
+                tenantId,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({
+                    body: expect.objectContaining({
+                        tenantId: tenantId
+                    })
+                })
+            );
+        });
+
+        it('should handle error response', async () => {
+            const mockError = {
+                code: 400,
+                message: 'INVALID_EMAIL'
+            };
+
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: null,
+                error: { error: mockError }
+            });
+
+            const result = await sendOobCode('PASSWORD_RESET', API_KEY, {
+                email: 'invalid-email'
+            });
+
+            expect(result.data).toBeNull();
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        });
+    });
+
+    describe('signInWithEmailLink', () => {
+        it('should sign in with email link successfully', async () => {
+            const mockResponse = {
+                idToken: 'test-id-token',
+                refreshToken: 'test-refresh-token',
+                localId: 'test-uid'
+            };
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await signInWithEmailLink(
+                'test-oob-code',
+                'test@example.com',
+                API_KEY,
+                undefined,
+                undefined,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(result.error).toBeNull();
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                'https://identitytoolkit.googleapis.com/v1/accounts:signInWithEmailLink',
+                expect.objectContaining({
+                    body: {
+                        oobCode: 'test-oob-code',
+                        email: 'test@example.com'
+                    },
+                    params: { key: API_KEY }
+                })
+            );
+        });
+
+        it('should include idToken when linking account', async () => {
+            const mockResponse = {
+                idToken: 'new-id-token',
+                refreshToken: 'new-refresh-token',
+                localId: 'test-uid'
+            };
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await signInWithEmailLink(
+                'test-oob-code',
+                'test@example.com',
+                API_KEY,
+                'existing-id-token',
+                undefined,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({
+                    body: expect.objectContaining({
+                        idToken: 'existing-id-token'
+                    })
+                })
+            );
+        });
+
+        it('should include tenant ID when provided', async () => {
+            const mockResponse = {
+                idToken: 'test-id-token',
+                localId: 'test-uid'
+            };
+            const tenantId = 'tenant-456';
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await signInWithEmailLink(
+                'test-oob-code',
+                'test@example.com',
+                API_KEY,
+                undefined,
+                tenantId,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({
+                    body: expect.objectContaining({
+                        tenantId: tenantId
+                    })
+                })
+            );
+        });
+
+        it('should handle error response', async () => {
+            const mockError = {
+                code: 400,
+                message: 'INVALID_OOB_CODE'
+            };
+
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: null,
+                error: { error: mockError }
+            });
+
+            const result = await signInWithEmailLink(
+                'invalid-code',
+                'test@example.com',
+                API_KEY
+            );
+
+            expect(result.data).toBeNull();
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        });
+    });
+
+    describe('linkWithOAuthCredential', () => {
+        it('should link OAuth credential successfully', async () => {
+            const mockResponse = {
+                idToken: 'new-id-token',
+                refreshToken: 'new-refresh-token',
+                localId: 'test-uid',
+                federatedId: 'google-user-id'
+            };
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await linkWithOAuthCredential(
+                'existing-id-token',
+                'google-provider-token',
+                'https://example.com/callback',
+                'google.com',
+                API_KEY,
+                undefined,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(result.error).toBeNull();
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                'https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp',
+                expect.objectContaining({
+                    body: expect.objectContaining({
+                        idToken: 'existing-id-token',
+                        postBody:
+                            'id_token=google-provider-token&providerId=google.com',
+                        requestUri: 'https://example.com/callback',
+                        returnSecureToken: true,
+                        returnIdpCredential: true
+                    }),
+                    params: { key: API_KEY }
+                })
+            );
+        });
+
+        it('should use access_token for GitHub provider when linking', async () => {
+            const mockResponse = {
+                idToken: 'new-id-token',
+                localId: 'test-uid'
+            };
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await linkWithOAuthCredential(
+                'existing-id-token',
+                'github-access-token',
+                'https://example.com/callback',
+                'github.com',
+                API_KEY,
+                undefined,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({
+                    body: expect.objectContaining({
+                        postBody:
+                            'access_token=github-access-token&providerId=github.com'
+                    })
+                })
+            );
+        });
+
+        it('should include tenant ID when provided', async () => {
+            const mockResponse = {
+                idToken: 'new-id-token',
+                localId: 'test-uid'
+            };
+            const tenantId = 'tenant-789';
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await linkWithOAuthCredential(
+                'existing-id-token',
+                'provider-token',
+                'https://example.com/callback',
+                'google.com',
+                API_KEY,
+                tenantId,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({
+                    body: expect.objectContaining({
+                        tenantId: tenantId
+                    })
+                })
+            );
+        });
+
+        it('should handle error response', async () => {
+            const mockError = {
+                code: 400,
+                message: 'CREDENTIAL_TOO_OLD_LOGIN_AGAIN'
+            };
+
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: null,
+                error: { error: mockError }
+            });
+
+            const result = await linkWithOAuthCredential(
+                'old-id-token',
+                'provider-token',
+                'https://example.com/callback',
+                'google.com',
+                API_KEY
+            );
+
+            expect(result.data).toBeNull();
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        });
+    });
+
+    describe('unlinkProvider', () => {
+        it('should unlink provider successfully', async () => {
+            const mockResponse = {
+                localId: 'test-uid',
+                email: 'test@example.com',
+                providerUserInfo: []
+            };
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await unlinkProvider(
+                'test-id-token',
+                'google.com',
+                API_KEY,
+                undefined,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(result.error).toBeNull();
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                'https://identitytoolkit.googleapis.com/v1/accounts:update',
+                expect.objectContaining({
+                    body: {
+                        idToken: 'test-id-token',
+                        deleteProvider: ['google.com']
+                    },
+                    params: { key: API_KEY }
+                })
+            );
+        });
+
+        it('should include tenant ID when provided', async () => {
+            const mockResponse = {
+                localId: 'test-uid',
+                providerUserInfo: []
+            };
+            const tenantId = 'tenant-abc';
+
+            const restFetchSpy = vi
+                .mocked(restFetch.restFetch)
+                .mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
+
+            const result = await unlinkProvider(
+                'test-id-token',
+                'github.com',
+                API_KEY,
+                tenantId,
+                mockFetch
+            );
+
+            expect(result.data).toEqual(mockResponse);
+            expect(restFetchSpy).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({
+                    body: expect.objectContaining({
+                        tenantId: tenantId
+                    })
+                })
+            );
+        });
+
+        it('should handle error response', async () => {
+            const mockError = {
+                code: 400,
+                message: 'INVALID_ID_TOKEN'
+            };
+
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: null,
+                error: { error: mockError }
+            });
+
+            const result = await unlinkProvider(
+                'invalid-token',
+                'google.com',
+                API_KEY
+            );
+
+            expect(result.data).toBeNull();
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
         });
     });
 });

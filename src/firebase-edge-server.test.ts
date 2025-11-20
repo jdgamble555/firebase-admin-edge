@@ -169,6 +169,7 @@ describe('createFirebaseEdgeServer', () => {
 
             expect(vi.mocked(FirebaseAuth)).toHaveBeenCalledWith(
                 mockFirebaseConfig,
+                'http://localhost',
                 'test-tenant-id',
                 globalThis.fetch
             );
@@ -195,6 +196,7 @@ describe('createFirebaseEdgeServer', () => {
 
             expect(vi.mocked(FirebaseAuth)).toHaveBeenCalledWith(
                 mockFirebaseConfig,
+                'http://localhost',
                 undefined,
                 globalThis.fetch
             );

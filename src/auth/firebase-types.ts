@@ -168,3 +168,21 @@ export interface ProviderUserInfo {
     photoUrl?: string;
     federatedId?: string;
 }
+
+export type FirebaseUpdateAccountResponse = {
+    localId: string;
+    email?: string;
+    displayName?: string;
+    photoUrl?: string;
+    passwordHash?: string;
+    providerUserInfo?: Array<{
+        providerId: string;
+        federatedId: string;
+        displayName?: string;
+        photoUrl?: string;
+    }>;
+    idToken?: string;
+    refreshToken?: string;
+    expiresIn?: string;
+    emailVerified?: boolean;
+};

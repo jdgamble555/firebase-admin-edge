@@ -77,6 +77,7 @@ export function createFirebaseEdgeServer({
     cookies,
     tenantId,
     redirectUri,
+    autoLinkProviders,
     fetch
 }: {
     serviceAccount: ServiceAccount;
@@ -85,6 +86,7 @@ export function createFirebaseEdgeServer({
     cookies: CookieConfig;
     redirectUri: string;
     tenantId?: string;
+    autoLinkProviders?: boolean;
     fetch?: typeof globalThis.fetch;
 }) {
     const sessionName = cookies.sessionName || DEFAULT_SESSION_NAME;
@@ -93,7 +95,12 @@ export function createFirebaseEdgeServer({
 
     const fetchImpl = fetch ?? globalThis.fetch;
 
-    const auth = new FirebaseAuth(firebaseConfig, tenantId, fetchImpl);
+    const auth = new FirebaseAuth(
+        firebaseConfig,
+        redirectUri,
+        tenantId,
+        fetchImpl
+    );
     const adminAuth = new FirebaseAdminAuth(
         serviceAccount,
         tenantId,
@@ -167,10 +174,21 @@ export function createFirebaseEdgeServer({
      * Generates a Google OAuth login URL and clears any existing session.
      *
      * @param next State parameter for the OAuth flow
+     * @param options Optional configuration object
+     * @param options.languageCode ISO 639-1 language code (e.g., 'en', 'es', 'fr')
+     * @param options.customParameters Custom OAuth parameters (e.g., { login_hint: 'user@example.com', hd: 'example.com' })
+     * @param options.addScopes Additional OAuth scopes (e.g., ['https://www.googleapis.com/auth/calendar.readonly'])
      * @returns Google OAuth login URL
      * @throws Error if Google provider not configured
      */
-    async function getGoogleLoginURL(next: string) {
+    async function getGoogleLoginURL(
+        next: string,
+        options?: {
+            languageCode?: string;
+            customParameters?: Record<string, string>;
+            addScopes?: string[];
+        }
+    ) {
         deleteSession();
 
         if (!providers.google) {
@@ -181,17 +199,34 @@ export function createFirebaseEdgeServer({
 
         const { client_id } = providers.google;
 
-        return createGoogleOAuthLoginUrl(redirectUri, next, client_id);
+        return createGoogleOAuthLoginUrl(
+            redirectUri,
+            next,
+            client_id,
+            options?.languageCode,
+            options?.customParameters,
+            options?.addScopes
+        );
     }
 
     /**
      * Generates a GitHub OAuth login URL and clears any existing session.
+     * Note: GitHub doesn't support language parameters - language is determined by user's browser/account settings.
      *
      * @param next State parameter for the OAuth flow
+     * @param options Optional configuration object
+     * @param options.customParameters Custom OAuth parameters (e.g., { login: 'username', allow_signup: 'false' })
+     * @param options.addScopes Additional OAuth scopes (e.g., ['repo', 'gist'])
      * @returns GitHub OAuth login URL
      * @throws Error if GitHub provider not configured
      */
-    async function getGitHubLoginURL(next: string) {
+    async function getGitHubLoginURL(
+        next: string,
+        options?: {
+            customParameters?: Record<string, string>;
+            addScopes?: string[];
+        }
+    ) {
         deleteSession();
 
         if (!providers.github) {
@@ -202,7 +237,13 @@ export function createFirebaseEdgeServer({
 
         const { client_id } = providers.github;
 
-        return createGitHubOAuthLoginUrl(redirectUri, next, client_id);
+        return createGitHubOAuthLoginUrl(
+            redirectUri,
+            next,
+            client_id,
+            options?.customParameters,
+            options?.addScopes
+        );
     }
 
     /**
@@ -309,7 +350,7 @@ export function createFirebaseEdgeServer({
         const providerId = provider === 'google' ? 'google.com' : 'github.com';
 
         const { data: signInData, error: signInError } =
-            await auth.signInWithProvider(oauthToken, redirectUri, providerId);
+            await auth.signInWithProvider(oauthToken, providerId);
 
         if (signInError) {
             return {
@@ -326,6 +367,10 @@ export function createFirebaseEdgeServer({
         }
 
         if (signInData.needConfirmation) {
+            if (autoLinkProviders) {
+                // Implement auto-linking logic here
+            }
+
             return {
                 error: new FirebaseEdgeError(
                     FirebaseEdgeServerErrorInfo.EDGE_ACCOUNT_EXISTS_DIFFERENT_METHOD

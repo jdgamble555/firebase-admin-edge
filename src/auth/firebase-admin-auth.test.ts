@@ -101,9 +101,14 @@ const mockFirebasePayload: FirebaseIdTokenPayload = {
 
 describe('FirebaseAdminAuth', () => {
     let auth: FirebaseAdminAuth;
+    let authWithTenant: FirebaseAdminAuth;
 
     beforeEach(() => {
         auth = new FirebaseAdminAuth(serviceAccountKey);
+        authWithTenant = new FirebaseAdminAuth(
+            serviceAccountKey,
+            'test-tenant-id'
+        );
         vi.clearAllMocks();
     });
 
@@ -357,6 +362,75 @@ describe('FirebaseAdminAuth', () => {
             expect(result.data).toEqual(mockPayloadWithLaterAuthTime);
             expect(result.error).toBeNull();
         });
+
+        it('returns error when token has no decoded payload', async () => {
+            mockedVerifyJWT.mockResolvedValueOnce({
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseEndpointErrorInfo.ENDPOINT_INVALID_ID_TOKEN
+                )
+            });
+
+            const result = await auth.verifyIdToken('id-token');
+
+            expect(result.data).toBeNull();
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect((result.error as FirebaseEdgeError).code).toBe(
+                FirebaseAdminAuthErrorInfo.ADMIN_ID_TOKEN_VERIFY_FAILED.code
+            );
+        });
+
+        it('returns error when tenant ID does not match', async () => {
+            const mockPayloadWithDifferentTenant = {
+                ...mockFirebasePayload,
+                firebase: {
+                    ...mockFirebasePayload.firebase,
+                    tenant: 'different-tenant-id'
+                }
+            };
+
+            mockedVerifyJWT.mockResolvedValueOnce({
+                data: mockPayloadWithDifferentTenant,
+                error: null
+            });
+
+            const result = await authWithTenant.verifyIdToken('id-token');
+
+            expect(result.data).toBeNull();
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect((result.error as FirebaseEdgeError).code).toBe(
+                FirebaseAdminAuthErrorInfo.ADMIN_ID_TOKEN_VERIFY_FAILED.code
+            );
+            expect((result.error as FirebaseEdgeError).cause).toBeInstanceOf(
+                Error
+            );
+            expect(
+                ((result.error as FirebaseEdgeError).cause as Error).message
+            ).toContain('does not match');
+        });
+
+        it('returns success when tenant ID matches', async () => {
+            const mockPayloadWithCorrectTenant = {
+                ...mockFirebasePayload,
+                firebase: {
+                    ...mockFirebasePayload.firebase,
+                    tenant: 'test-tenant-id'
+                }
+            };
+
+            mockedVerifyJWT.mockResolvedValueOnce({
+                data: mockPayloadWithCorrectTenant,
+                error: null
+            });
+
+            const result = await authWithTenant.verifyIdToken(
+                'id-token',
+                false
+            );
+
+            expect(result.data).toEqual(mockPayloadWithCorrectTenant);
+            expect(result.error).toBeNull();
+        });
     });
 
     describe('createSessionCookie', () => {
@@ -560,6 +634,78 @@ describe('FirebaseAdminAuth', () => {
             expect(result.data).toEqual(mockFirebasePayload);
             expect(result.error).toBeNull();
         });
+
+        it('returns error when no decoded data returned', async () => {
+            mockedVerifySessionJWT.mockResolvedValueOnce({
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseEndpointErrorInfo.ENDPOINT_INVALID_SESSION_COOKIE
+                )
+            });
+
+            const result = await auth.verifySessionCookie('session-cookie');
+
+            expect(result.data).toBeNull();
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect((result.error as FirebaseEdgeError).code).toBe(
+                FirebaseAdminAuthErrorInfo.ADMIN_SESSION_COOKIE_VERIFY_FAILED
+                    .code
+            );
+        });
+
+        it('returns error when tenant ID does not match', async () => {
+            const mockPayloadWithDifferentTenant = {
+                ...mockFirebasePayload,
+                firebase: {
+                    ...mockFirebasePayload.firebase,
+                    tenant: 'wrong-tenant-id'
+                }
+            };
+
+            mockedVerifySessionJWT.mockResolvedValueOnce({
+                data: mockPayloadWithDifferentTenant,
+                error: null
+            });
+
+            const result =
+                await authWithTenant.verifySessionCookie('session-cookie');
+
+            expect(result.data).toBeNull();
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect((result.error as FirebaseEdgeError).code).toBe(
+                FirebaseAdminAuthErrorInfo.ADMIN_SESSION_COOKIE_VERIFY_FAILED
+                    .code
+            );
+            expect((result.error as FirebaseEdgeError).cause).toBeInstanceOf(
+                Error
+            );
+            expect(
+                ((result.error as FirebaseEdgeError).cause as Error).message
+            ).toContain('does not match');
+        });
+
+        it('returns success when tenant ID matches', async () => {
+            const mockPayloadWithCorrectTenant = {
+                ...mockFirebasePayload,
+                firebase: {
+                    ...mockFirebasePayload.firebase,
+                    tenant: 'test-tenant-id'
+                }
+            };
+
+            mockedVerifySessionJWT.mockResolvedValueOnce({
+                data: mockPayloadWithCorrectTenant,
+                error: null
+            });
+
+            const result = await authWithTenant.verifySessionCookie(
+                'session-cookie',
+                false
+            );
+
+            expect(result.data).toEqual(mockPayloadWithCorrectTenant);
+            expect(result.error).toBeNull();
+        });
     });
 
     describe('createCustomToken', () => {
@@ -607,6 +753,45 @@ describe('FirebaseAdminAuth', () => {
             });
 
             const claims = { role: 'admin' };
+            const result = await auth.createCustomToken('uid-1', claims);
+
+            expect(mockedSignJWTCustomToken).toHaveBeenCalledWith(
+                'uid-1',
+                serviceAccountKey,
+                claims
+            );
+            expect(result.data).toBe('custom-token');
+            expect(result.error).toBeNull();
+        });
+
+        it('includes tenant_id claim when tenant is specified', async () => {
+            mockedSignJWTCustomToken.mockResolvedValueOnce({
+                data: 'custom-token-with-tenant',
+                error: null
+            });
+
+            const claims = { role: 'admin' };
+            const result = await authWithTenant.createCustomToken(
+                'uid-1',
+                claims
+            );
+
+            expect(mockedSignJWTCustomToken).toHaveBeenCalledWith(
+                'uid-1',
+                serviceAccountKey,
+                { ...claims, tenant_id: 'test-tenant-id' }
+            );
+            expect(result.data).toBe('custom-token-with-tenant');
+            expect(result.error).toBeNull();
+        });
+
+        it('does not add tenant_id when no tenant specified', async () => {
+            mockedSignJWTCustomToken.mockResolvedValueOnce({
+                data: 'custom-token',
+                error: null
+            });
+
+            const claims = { role: 'user' };
             const result = await auth.createCustomToken('uid-1', claims);
 
             expect(mockedSignJWTCustomToken).toHaveBeenCalledWith(

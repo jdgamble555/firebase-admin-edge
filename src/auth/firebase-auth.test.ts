@@ -20,7 +20,12 @@ describe('FirebaseAuth', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockFetch = vi.fn() as unknown as typeof globalThis.fetch;
-        firebaseAuth = new FirebaseAuth(mockConfig, undefined, mockFetch);
+        firebaseAuth = new FirebaseAuth(
+            mockConfig,
+            'http://localhost',
+            undefined,
+            mockFetch
+        );
     });
 
     describe('signInWithProvider', () => {
@@ -40,7 +45,6 @@ describe('FirebaseAuth', () => {
 
             const result = await firebaseAuth.signInWithProvider(
                 'idToken',
-                'http://localhost',
                 'google.com'
             );
 
@@ -66,10 +70,7 @@ describe('FirebaseAuth', () => {
                 error: mockError
             });
 
-            const result = await firebaseAuth.signInWithProvider(
-                'idToken',
-                'http://localhost'
-            );
+            const result = await firebaseAuth.signInWithProvider('idToken');
 
             expect(result.data).toBeNull();
             expect(result.error).toBeInstanceOf(FirebaseEdgeError);
@@ -85,10 +86,7 @@ describe('FirebaseAuth', () => {
                 error: null
             });
 
-            const result = await firebaseAuth.signInWithProvider(
-                'idToken',
-                'http://localhost'
-            );
+            const result = await firebaseAuth.signInWithProvider('idToken');
 
             expect(result.data).toBeNull();
             expect(result.error).toBeInstanceOf(FirebaseEdgeError);
@@ -163,6 +161,101 @@ describe('FirebaseAuth', () => {
             expect(result.error?.message).toBe(
                 FirebaseAuthErrorInfo.AUTH_PROVIDER_DATA_MISSING.message
             );
+        });
+    });
+
+    describe('linkWithCredential', () => {
+        it('should return data on successful link', async () => {
+            const mockData = {
+                idToken: 'new-token',
+                refreshToken: 'new-refresh',
+                expiresIn: '3600',
+                localId: 'user123',
+                providerId: 'google.com',
+                federatedId: 'google-fed-id'
+            };
+            vi.mocked(endpoints.linkWithOAuthCredential).mockResolvedValue({
+                data: mockData,
+                error: null
+            });
+
+            const result = await firebaseAuth.linkWithCredential(
+                'existing-id-token',
+                'provider-token',
+                'google.com'
+            );
+
+            expect(result.data).toEqual(mockData);
+            expect(result.error).toBeNull();
+            expect(endpoints.linkWithOAuthCredential).toHaveBeenCalledWith(
+                'existing-id-token',
+                'provider-token',
+                'http://localhost',
+                'google.com',
+                'test-api-key',
+                undefined,
+                mockFetch
+            );
+        });
+
+        it('should return error on failed link', async () => {
+            const mockError = mapFirebaseError({
+                code: 400,
+                message: 'CREDENTIAL_TOO_OLD_LOGIN_AGAIN'
+            });
+            vi.mocked(endpoints.linkWithOAuthCredential).mockResolvedValue({
+                data: null,
+                error: mockError
+            });
+
+            const result = await firebaseAuth.linkWithCredential(
+                'old-id-token',
+                'provider-token',
+                'google.com'
+            );
+
+            expect(result.data).toBeNull();
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/provider-sign-in-failed');
+            expect(result.error?.message).toBe(
+                FirebaseAuthErrorInfo.AUTH_PROVIDER_SIGN_IN_FAILED.message
+            );
+        });
+
+        it('should return error when no data returned', async () => {
+            vi.mocked(endpoints.linkWithOAuthCredential).mockResolvedValue({
+                data: null,
+                error: null
+            });
+
+            const result = await firebaseAuth.linkWithCredential(
+                'id-token',
+                'provider-token',
+                'google.com'
+            );
+
+            expect(result.data).toBeNull();
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/provider-data-missing');
+            expect(result.error?.message).toBe(
+                FirebaseAuthErrorInfo.AUTH_PROVIDER_DATA_MISSING.message
+            );
+        });
+
+        it('should handle exceptions during link', async () => {
+            vi.mocked(endpoints.linkWithOAuthCredential).mockRejectedValue(
+                new Error('Network error')
+            );
+
+            const result = await firebaseAuth.linkWithCredential(
+                'id-token',
+                'provider-token',
+                'google.com'
+            );
+
+            expect(result.data).toBeNull();
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error?.code).toBe('auth/provider-sign-in-failed');
         });
     });
 });

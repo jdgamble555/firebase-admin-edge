@@ -104,8 +104,8 @@ redirect(302, '/');
 
 ## Firebase Auth Todo
 
-- ☐ Link and Unlink Providers
 - ☐ Magic Link Login (auto save email option)
+- ☐ Link and Unlink Providers
 - ☐ Email / Password / Annonymous Login
 - ☐ Reset Password
 - ☐ Change Email

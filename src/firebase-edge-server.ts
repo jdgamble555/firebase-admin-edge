@@ -371,6 +371,11 @@ export function createFirebaseEdgeServer({
                 // Implement auto-linking logic here
             }
 
+            // const uid = await admin.getUserByEmail(email)
+            // const customToken = await createCustomToken(uid)
+            // const firebaseToken = await signInWithCustomToken(customToken)
+            // linkWithCredential(firebaseToken, providerToken, providerId)
+
             return {
                 error: new FirebaseEdgeError(
                     FirebaseEdgeServerErrorInfo.EDGE_ACCOUNT_EXISTS_DIFFERENT_METHOD

@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.24
+
+### Patch Changes
+
+- 310f908: auto merge providers
+
 ## 1.0.23
 
 ### Patch Changes

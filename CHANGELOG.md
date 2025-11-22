@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.0.23
+
+### Patch Changes
+
+- 2796d1e: Add token cache
+
 ## 1.0.22
 
 ### Patch Changes

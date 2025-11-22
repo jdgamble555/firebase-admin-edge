@@ -8,7 +8,15 @@ import { signJWT } from './firebase-jwt.js';
 import { FirebaseEdgeError, ensureError } from './errors.js';
 import { GoogleErrorInfo } from './auth-error-codes.js';
 
-// TODO - allow scope customization
+export type TokenResults =
+    | {
+          data: null;
+          error: FirebaseEdgeError;
+      }
+    | {
+          data: GoogleTokenResponse;
+          error: null;
+      };
 
 export async function exchangeCodeForGoogleIdToken(
     code: string,
@@ -16,7 +24,7 @@ export async function exchangeCodeForGoogleIdToken(
     client_id: string,
     client_secret: string,
     fetchFn?: typeof globalThis.fetch
-) {
+): Promise<TokenResults> {
     const url = 'https://oauth2.googleapis.com/token';
 
     const { data, error } = await restFetch<
@@ -121,6 +129,15 @@ export async function exchangeCodeForGoogleIdToken(
         };
     }
 
+    if (!data) {
+        return {
+            data: null,
+            error: new FirebaseEdgeError(
+                GoogleErrorInfo.GOOGLE_TOKEN_REQUEST_FAILED
+            )
+        };
+    }
+
     return {
         data,
         error: null
@@ -130,7 +147,7 @@ export async function exchangeCodeForGoogleIdToken(
 export async function getToken(
     serviceAccount: ServiceAccount,
     fetch?: typeof globalThis.fetch
-) {
+): Promise<TokenResults> {
     const url = 'https://oauth2.googleapis.com/token';
 
     try {
@@ -211,6 +228,15 @@ export async function getToken(
                     {
                         context: { originalError: error.error.message }
                     }
+                )
+            };
+        }
+
+        if (!data) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    GoogleErrorInfo.GOOGLE_TOKEN_REQUEST_FAILED
                 )
             };
         }

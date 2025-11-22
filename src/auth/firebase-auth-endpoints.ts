@@ -164,8 +164,8 @@ export async function signInWithCustomToken(
     };
 }
 
-export async function getAccountInfoByUid(
-    uid: string,
+export async function getAccountInfo(
+    identifier: { uid: string } | { email: string } | { phoneNumber: string },
     token: string,
     project_id: string,
     tenantId?: string,
@@ -173,8 +173,12 @@ export async function getAccountInfoByUid(
 ) {
     const url = createAdminIdentityURL(project_id, 'lookup', true, tenantId);
 
-    const body = {
-        localId: uid,
+    const body: Record<string, any> = {
+        ...('uid' in identifier && { localId: identifier.uid }),
+        ...('email' in identifier && { email: [identifier.email] }),
+        ...('phoneNumber' in identifier && {
+            phoneNumber: [identifier.phoneNumber]
+        }),
         ...(tenantId && { tenantId })
     };
 
@@ -197,7 +201,7 @@ export async function createSessionCookie(
     idToken: string,
     token: string,
     project_id: string,
-    expiresIn: number = 60 * 60 * 24 * 14 * 1000,
+    expiresIn_ms: number = 60 * 60 * 24 * 14 * 1000,
     tenantId?: string,
     fetchFn?: typeof globalThis.fetch
 ) {
@@ -210,7 +214,7 @@ export async function createSessionCookie(
 
     const body = {
         idToken,
-        validDuration: Math.floor(expiresIn / 1000),
+        validDuration: Math.floor(expiresIn_ms / 1000),
         ...(tenantId && { tenantId })
     };
 

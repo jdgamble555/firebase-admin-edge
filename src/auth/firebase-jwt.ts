@@ -313,6 +313,7 @@ export async function signJWT(
             };
         }
 
+        // Always sign in seconds
         const now = Math.floor(Date.now() / 1000);
 
         const payload: JWTPayload = {

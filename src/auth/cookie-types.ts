@@ -23,3 +23,8 @@ export type SetSession = (
     value: string,
     options: CookieOptions
 ) => Promise<void> | void;
+
+export type CookieConfig = {
+    getSession: GetSession;
+    saveSession: SetSession;
+};

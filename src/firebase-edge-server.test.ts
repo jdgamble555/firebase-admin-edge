@@ -176,7 +176,9 @@ describe('createFirebaseEdgeServer', () => {
             expect(vi.mocked(FirebaseAdminAuth)).toHaveBeenCalledWith(
                 mockServiceAccount,
                 'test-tenant-id',
-                globalThis.fetch
+                globalThis.fetch,
+                undefined,
+                undefined
             );
         });
 
@@ -203,7 +205,9 @@ describe('createFirebaseEdgeServer', () => {
             expect(vi.mocked(FirebaseAdminAuth)).toHaveBeenCalledWith(
                 mockServiceAccount,
                 undefined,
-                globalThis.fetch
+                globalThis.fetch,
+                undefined,
+                undefined
             );
         });
     });

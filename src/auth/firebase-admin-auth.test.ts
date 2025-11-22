@@ -7,7 +7,7 @@ import type {
     FirebaseIdTokenPayload
 } from './firebase-types.js';
 import {
-    getAccountInfoByUid,
+    getAccountInfo,
     createSessionCookie as createSessionCookieEndpoint
 } from './firebase-auth-endpoints.js';
 import { getToken } from './google-oauth.js';
@@ -24,7 +24,7 @@ import {
 } from './errors.js';
 
 vi.mock('./firebase-auth-endpoints.js', () => ({
-    getAccountInfoByUid: vi.fn(),
+    getAccountInfo: vi.fn(),
     createSessionCookie: vi.fn()
 }));
 
@@ -39,7 +39,7 @@ vi.mock('./google-oauth.js', () => ({
 }));
 
 const mockedGetToken = vi.mocked(getToken);
-const mockedGetAccountInfoByUid = vi.mocked(getAccountInfoByUid);
+const mockedGetAccountInfo = vi.mocked(getAccountInfo);
 const mockedCreateSessionCookieEndpoint = vi.mocked(
     createSessionCookieEndpoint
 );
@@ -120,7 +120,9 @@ describe('FirebaseAdminAuth', () => {
         it('returns error when getToken returns an error', async () => {
             mockedGetToken.mockResolvedValueOnce({
                 data: null,
-                error: new Error('unauthorized')
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED
+                )
             });
 
             const result = await auth.getUser('uid-1');
@@ -137,7 +139,9 @@ describe('FirebaseAdminAuth', () => {
         it('returns error when getToken does not return a token', async () => {
             mockedGetToken.mockResolvedValueOnce({
                 data: null,
-                error: null
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED
+                )
             });
 
             const result = await auth.getUser('uid-1');
@@ -145,7 +149,8 @@ describe('FirebaseAdminAuth', () => {
             expect(result.data).toBeNull();
             expect(result.error).toBeInstanceOf(FirebaseEdgeError);
             expect(result.error!.code).toBe(
-                FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED.code
+                FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED
+                    .code
             );
         });
 
@@ -155,7 +160,7 @@ describe('FirebaseAdminAuth', () => {
                 error: null
             });
 
-            mockedGetAccountInfoByUid.mockResolvedValueOnce({
+            mockedGetAccountInfo.mockResolvedValueOnce({
                 data: mockUserRecord,
                 error: null
             });
@@ -166,8 +171,8 @@ describe('FirebaseAdminAuth', () => {
                 serviceAccountKey,
                 undefined
             );
-            expect(mockedGetAccountInfoByUid).toHaveBeenCalledWith(
-                'uid-1',
+            expect(mockedGetAccountInfo).toHaveBeenCalledWith(
+                { uid: 'uid-1' },
                 'test-access-token',
                 'test-project',
                 undefined,
@@ -186,7 +191,7 @@ describe('FirebaseAdminAuth', () => {
             const error = new FirebaseEdgeError(
                 FirebaseEndpointErrorInfo.ENDPOINT_USER_NOT_FOUND
             );
-            mockedGetAccountInfoByUid.mockResolvedValueOnce({
+            mockedGetAccountInfo.mockResolvedValueOnce({
                 data: null,
                 error
             });
@@ -244,7 +249,7 @@ describe('FirebaseAdminAuth', () => {
                 data: mockGoogleTokenResponse,
                 error: null
             });
-            mockedGetAccountInfoByUid.mockResolvedValueOnce({
+            mockedGetAccountInfo.mockResolvedValueOnce({
                 data: null,
                 error: userError
             });
@@ -252,10 +257,9 @@ describe('FirebaseAdminAuth', () => {
             const result = await auth.verifyIdToken('id-token', true);
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(
-                new Error(
-                    'Failed to get user: Internal error occurred in Firebase service.'
-                )
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error!.code).toBe(
+                FirebaseAdminAuthErrorInfo.ADMIN_USER_LOOKUP_FAILED.code
             );
         });
 
@@ -269,7 +273,7 @@ describe('FirebaseAdminAuth', () => {
                 data: mockGoogleTokenResponse,
                 error: null
             });
-            mockedGetAccountInfoByUid.mockResolvedValueOnce({
+            mockedGetAccountInfo.mockResolvedValueOnce({
                 data: null,
                 error: null
             });
@@ -277,7 +281,10 @@ describe('FirebaseAdminAuth', () => {
             const result = await auth.verifyIdToken('id-token', true);
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(new Error('No user record found!'));
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error!.code).toBe(
+                FirebaseAdminAuthErrorInfo.ADMIN_USER_RECORD_NOT_FOUND.code
+            );
         });
 
         it('returns ERR_USER_DISABLED when user.disabled is true', async () => {
@@ -290,7 +297,7 @@ describe('FirebaseAdminAuth', () => {
                 data: mockGoogleTokenResponse,
                 error: null
             });
-            mockedGetAccountInfoByUid.mockResolvedValueOnce({
+            mockedGetAccountInfo.mockResolvedValueOnce({
                 data: { ...mockUserRecord, disabled: true },
                 error: null
             });
@@ -316,7 +323,7 @@ describe('FirebaseAdminAuth', () => {
             });
 
             // tokensValidAfterTime far in the future compared to auth_time
-            mockedGetAccountInfoByUid.mockResolvedValueOnce({
+            mockedGetAccountInfo.mockResolvedValueOnce({
                 data: {
                     ...mockUserRecord,
                     disabled: false,
@@ -348,7 +355,7 @@ describe('FirebaseAdminAuth', () => {
                 data: mockGoogleTokenResponse,
                 error: null
             });
-            mockedGetAccountInfoByUid.mockResolvedValueOnce({
+            mockedGetAccountInfo.mockResolvedValueOnce({
                 data: {
                     ...mockUserRecord,
                     disabled: false,
@@ -399,14 +406,8 @@ describe('FirebaseAdminAuth', () => {
             expect(result.data).toBeNull();
             expect(result.error).toBeInstanceOf(FirebaseEdgeError);
             expect((result.error as FirebaseEdgeError).code).toBe(
-                FirebaseAdminAuthErrorInfo.ADMIN_ID_TOKEN_VERIFY_FAILED.code
+                FirebaseAdminAuthErrorInfo.ADMIN_TENANT_ID_INVALID.code
             );
-            expect((result.error as FirebaseEdgeError).cause).toBeInstanceOf(
-                Error
-            );
-            expect(
-                ((result.error as FirebaseEdgeError).cause as Error).message
-            ).toContain('does not match');
         });
 
         it('returns success when tenant ID matches', async () => {
@@ -440,9 +441,7 @@ describe('FirebaseAdminAuth', () => {
                 error: new Error('unauthorized')
             });
 
-            const result = await auth.createSessionCookie('id-token', {
-                expiresIn: 3600
-            });
+            const result = await auth.createSessionCookie('id-token', 3600);
 
             expect(result.data).toBeNull();
             expect(result.error).toBeInstanceOf(FirebaseEdgeError);
@@ -455,17 +454,18 @@ describe('FirebaseAdminAuth', () => {
         it('returns error when token is missing', async () => {
             mockedGetToken.mockResolvedValueOnce({
                 data: null,
-                error: null
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED
+                )
             });
 
-            const result = await auth.createSessionCookie('id-token', {
-                expiresIn: 3600
-            });
+            const result = await auth.createSessionCookie('id-token', 3600);
 
             expect(result.data).toBeNull();
             expect(result.error).toBeInstanceOf(FirebaseEdgeError);
             expect(result.error!.code).toBe(
-                FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED.code
+                FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED
+                    .code
             );
         });
 
@@ -483,9 +483,7 @@ describe('FirebaseAdminAuth', () => {
                 error: endpointError
             });
 
-            const result = await auth.createSessionCookie('id-token', {
-                expiresIn: 3600
-            });
+            const result = await auth.createSessionCookie('id-token', 3600);
 
             expect(mockedCreateSessionCookieEndpoint).toHaveBeenCalledWith(
                 'id-token',
@@ -515,9 +513,7 @@ describe('FirebaseAdminAuth', () => {
                 error: null
             });
 
-            const result = await auth.createSessionCookie('id-token', {
-                expiresIn: 3600
-            });
+            const result = await auth.createSessionCookie('id-token', 3600);
 
             expect(result.data).toEqual(cookieData);
             expect(result.error).toBeNull();
@@ -569,7 +565,7 @@ describe('FirebaseAdminAuth', () => {
             const error = new FirebaseEdgeError(
                 FirebaseEndpointErrorInfo.ENDPOINT_INTERNAL_ERROR
             );
-            mockedGetAccountInfoByUid.mockResolvedValueOnce({
+            mockedGetAccountInfo.mockResolvedValueOnce({
                 data: null,
                 error
             });
@@ -580,10 +576,9 @@ describe('FirebaseAdminAuth', () => {
             );
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(
-                new Error(
-                    'Failed to get user: Internal error occurred in Firebase service.'
-                )
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error!.code).toBe(
+                FirebaseAdminAuthErrorInfo.ADMIN_USER_LOOKUP_FAILED.code
             );
         });
 
@@ -597,7 +592,7 @@ describe('FirebaseAdminAuth', () => {
                 data: mockGoogleTokenResponse,
                 error: null
             });
-            mockedGetAccountInfoByUid.mockResolvedValueOnce({
+            mockedGetAccountInfo.mockResolvedValueOnce({
                 data: null,
                 error: null
             });
@@ -608,7 +603,10 @@ describe('FirebaseAdminAuth', () => {
             );
 
             expect(result.data).toBeNull();
-            expect(result.error).toEqual(new Error('No user record found!'));
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+            expect(result.error!.code).toBe(
+                FirebaseAdminAuthErrorInfo.ADMIN_USER_RECORD_NOT_FOUND.code
+            );
         });
 
         it('returns decoded data when revoked check passes', async () => {
@@ -621,7 +619,7 @@ describe('FirebaseAdminAuth', () => {
                 data: mockGoogleTokenResponse,
                 error: null
             });
-            mockedGetAccountInfoByUid.mockResolvedValueOnce({
+            mockedGetAccountInfo.mockResolvedValueOnce({
                 data: mockUserRecord,
                 error: null
             });
@@ -673,15 +671,8 @@ describe('FirebaseAdminAuth', () => {
             expect(result.data).toBeNull();
             expect(result.error).toBeInstanceOf(FirebaseEdgeError);
             expect((result.error as FirebaseEdgeError).code).toBe(
-                FirebaseAdminAuthErrorInfo.ADMIN_SESSION_COOKIE_VERIFY_FAILED
-                    .code
+                FirebaseAdminAuthErrorInfo.ADMIN_TENANT_ID_INVALID.code
             );
-            expect((result.error as FirebaseEdgeError).cause).toBeInstanceOf(
-                Error
-            );
-            expect(
-                ((result.error as FirebaseEdgeError).cause as Error).message
-            ).toContain('does not match');
         });
 
         it('returns success when tenant ID matches', async () => {

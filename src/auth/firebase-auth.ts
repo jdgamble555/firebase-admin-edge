@@ -7,7 +7,19 @@ import type { FirebaseConfig } from './firebase-types.js';
 import { FirebaseEdgeError, ensureError } from './errors.js';
 import { FirebaseAuthErrorInfo } from './auth-error-codes.js';
 
+/**
+ * Firebase Client Authentication handler for edge environments.
+ * Provides client-side authentication operations using Firebase API.
+ */
 export class FirebaseAuth {
+    /**
+     * Creates a new Firebase Auth instance.
+     *
+     * @param firebase_config Firebase client configuration
+     * @param requestUri OAuth callback URI
+     * @param tenantId Optional tenant ID for multi-tenancy
+     * @param fetch Optional custom fetch implementation
+     */
     constructor(
         private firebase_config: FirebaseConfig,
         private requestUri: string,
@@ -15,6 +27,13 @@ export class FirebaseAuth {
         private fetch?: typeof globalThis.fetch
     ) {}
 
+    /**
+     * Signs in a user with an OAuth provider token.
+     *
+     * @param oauthToken OAuth access token or ID token from the provider
+     * @param providerId OAuth provider ID (defaults to 'google.com')
+     * @returns Promise with object containing sign-in data or null, and error if any
+     */
     async signInWithProvider(oauthToken: string, providerId = 'google.com') {
         try {
             const { data: signInData, error: signInError } =
@@ -70,6 +89,12 @@ export class FirebaseAuth {
         }
     }
 
+    /**
+     * Signs in a user with a custom Firebase authentication token.
+     *
+     * @param customToken Custom authentication token created by Firebase Admin SDK
+     * @returns Promise with object containing sign-in data (idToken, refreshToken, expiresIn) or null, and error if any
+     */
     async signInWithCustomToken(customToken: string) {
         try {
             const { data: signInData, error: signInError } =
@@ -128,6 +153,14 @@ export class FirebaseAuth {
         }
     }
 
+    /**
+     * Links an OAuth credential to an existing user account.
+     *
+     * @param idToken Firebase ID token of the user to link
+     * @param providerToken OAuth token from the provider to link
+     * @param providerId OAuth provider ID (defaults to 'google.com')
+     * @returns Promise with object containing linked account data or null, and error if any
+     */
     async linkWithCredential(
         idToken: string,
         providerToken: string,

@@ -23,8 +23,11 @@ npm i firebase-admin-edge
 ### Basic setup
 
 ```typescript
-import { createFirebaseEdgeServer } from 'firebase-admin-edge';
+import { createFirebaseEdgeServer, TokenCache } from 'firebase-admin-edge';
 import { getCookie, setCookie } from 'your-framework-library';
+
+// Optional: Create a cache for service account tokens (recommended for performance)
+const cache = new TokenCache();
 
 // Create the edge server once during initialization. Keep secrets out of
 // source control — load the `serviceAccount` and client secrets from
@@ -44,6 +47,10 @@ export const firebaseServer = createFirebaseEdgeServer({
         google: {
             client_id: 'your-google-oauth-client-id',
             client_secret: 'your-google-oauth-client-secret'
+        },
+        github: {
+            client_id: 'your-github-oauth-client-id',
+            client_secret: 'your-github-oauth-client-secret'
         }
     },
     cookies: {
@@ -51,8 +58,27 @@ export const firebaseServer = createFirebaseEdgeServer({
         getSession: (name) => getCookie(name),
         saveSession: (name, value, options) => setCookie(name, value, options)
     },
+    // Optional: Token caching for improved performance (tokens cached for 1 hour)
+    cache: {
+        getCache: (name) => cache.get(name),
+        setCache: (name, value, ttl) => cache.set(name, value, ttl)
+    },
+    // Optional: Custom session cookie name (defaults to '__session')
+    cookieName: '__session',
+    // Optional: Custom cookie options
+    cookieOptions: {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 5 // 5 days
+    },
     // OAuth callback URL (registered with your provider)
-    redirectUri: 'https://example.com/auth/callback'
+    redirectUri: 'https://example.com/auth/callback',
+    // Optional: Tenant ID for multi-tenancy
+    tenantId: 'your-tenant-id',
+    // Optional: Automatically link accounts with same email
+    autoLinkProviders: false
 });
 ```
 
@@ -99,8 +125,11 @@ redirect(302, '/');
 - ✅ **Zero Dependencies** - Uses only fetch API and jose
 - ✅ **TypeScript Support** - Full type safety and IntelliSense
 - ✅ **Session Management** - Secure HTTP-only cookies
-- ✅ **Google OAuth** - Complete OAuth 2.0 flow
+- ✅ **OAuth Support** - Google and GitHub OAuth 2.0 flows
 - ✅ **Token Management** - Generate client tokens from server sessions
+- ✅ **Token Caching** - Optional caching for service account tokens (1-hour TTL)
+- ✅ **Multi-Tenancy** - Support for Firebase Auth tenant IDs
+- ✅ **Flexible Configuration** - Customizable cookie options and cache implementations
 
 ## Firebase Auth Todo
 

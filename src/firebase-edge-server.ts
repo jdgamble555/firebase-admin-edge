@@ -1,8 +1,4 @@
-import type {
-    CookieOptions,
-    GetSession,
-    SetSession
-} from './auth/cookie-types.js';
+import type { CookieConfig, CookieOptions } from './auth/cookie-types.js';
 import { FirebaseAdminAuth } from './auth/firebase-admin-auth.js';
 import { FirebaseAuth } from './auth/firebase-auth.js';
 import { signJWTCustomToken } from './auth/firebase-jwt.js';
@@ -15,13 +11,16 @@ import {
 } from './auth/oauth.js';
 import { FirebaseEdgeError } from './auth/errors.js';
 import { FirebaseEdgeServerErrorInfo } from './firebase-edge-errors.js';
+import type { CacheConfig } from './auth/cache-types.js';
+
+const COOKIE_LIFETIME_SECONDS = 60 * 60 * 24 * 5; // 5 days
 
 const COOKIE_OPTIONS = {
     httpOnly: true,
     secure: true,
     sameSite: 'lax',
     path: '/',
-    maxAge: 60 * 60 * 24 * 5 * 1000
+    maxAge: COOKIE_LIFETIME_SECONDS
 } as CookieOptions;
 
 /**
@@ -50,11 +49,6 @@ type ProviderConfig = Partial<
     >
 >;
 
-type CookieConfig = {
-    getSession: GetSession;
-    saveSession: SetSession;
-};
-
 /**
  * Creates a Firebase Edge Server for authentication and session management in edge environments.
  *
@@ -62,11 +56,16 @@ type CookieConfig = {
  * @param config.serviceAccount Firebase service account for admin operations
  * @param config.firebaseConfig Firebase client configuration
  * @param config.providers OAuth provider configurations (Google, GitHub, etc.)
- * @param config.cookies Cookie management functions
+ * @param config.cookies Cookie management functions (getSession, saveSession)
+ * @param config.redirectUri OAuth callback redirect URI
+ * @param config.cache Optional cache implementation for token caching
+ * @param config.cacheName Optional cache key name for token storage
  * @param config.cookieName Optional custom session cookie name (defaults to '__session')
+ * @param config.cookieOptions Optional cookie configuration overrides
  * @param config.tenantId Optional Firebase Auth tenant ID for multi-tenancy
+ * @param config.autoLinkProviders Optional flag to automatically link accounts with same email
  * @param config.fetch Optional custom fetch implementation
- * @returns Object with authentication methods
+ * @returns Object with authentication methods (auth, adminAuth, signOut, getUser, getGoogleLoginURL, getGitHubLoginURL, signInWithCallback, getToken)
  */
 export function createFirebaseEdgeServer({
     serviceAccount,
@@ -74,6 +73,9 @@ export function createFirebaseEdgeServer({
     providers,
     cookies,
     cookieName,
+    cookieOptions,
+    cache,
+    cacheName,
     tenantId,
     redirectUri,
     autoLinkProviders,
@@ -83,18 +85,28 @@ export function createFirebaseEdgeServer({
     firebaseConfig: FirebaseConfig;
     providers: ProviderConfig;
     cookies: CookieConfig;
+    cache?: CacheConfig;
+    cacheName?: string;
     cookieName?: string;
+    cookieOptions?: Partial<CookieOptions>;
     redirectUri: string;
     tenantId?: string;
     autoLinkProviders?: boolean;
     fetch?: typeof globalThis.fetch;
 }) {
+    // Cookies
     const _cookieName = cookieName || '__session';
-    const getSession = cookies.getSession;
-    const saveSession = cookies.saveSession;
 
+    const { getSession, saveSession } = cookies;
+
+    const _cookieOptions = { ...COOKIE_OPTIONS, ...cookieOptions };
+
+    // Fetch
     const fetchImpl = fetch ?? globalThis.fetch;
 
+    const cacheImpl = cache ?? undefined;
+
+    // Auth instances
     const auth = new FirebaseAuth(
         firebaseConfig,
         redirectUri,
@@ -104,16 +116,17 @@ export function createFirebaseEdgeServer({
     const adminAuth = new FirebaseAdminAuth(
         serviceAccount,
         tenantId,
-        fetchImpl
+        fetchImpl,
+        cacheImpl,
+        cacheName
     );
 
     /**
-     * Clears the session cookie
-     * @internal
+     * Clears the session cookie by setting its maxAge to 0.
      */
     function deleteSession() {
         saveSession(_cookieName, '', {
-            ...COOKIE_OPTIONS,
+            ..._cookieOptions,
             maxAge: 0
         });
     }
@@ -121,6 +134,8 @@ export function createFirebaseEdgeServer({
     /**
      * Signs out the current user by clearing the session cookie.
      * Note: This only removes the server-side session, not Firebase client tokens.
+     *
+     * @returns void
      */
     function signOut() {
         deleteSession();
@@ -130,8 +145,8 @@ export function createFirebaseEdgeServer({
     /**
      * Gets the current authenticated user from the session cookie.
      *
-     * @param checkRevoked Whether to check if the token has been revoked
-     * @returns Promise with user data and error
+     * @param checkRevoked Whether to check if the token has been revoked (defaults to false)
+     * @returns Promise resolving to object with decoded token data or null, and error if any
      */
     async function getUser(checkRevoked: boolean = false) {
         const sessionCookie = await getSession(_cookieName);
@@ -173,13 +188,13 @@ export function createFirebaseEdgeServer({
     /**
      * Generates a Google OAuth login URL and clears any existing session.
      *
-     * @param next State parameter for the OAuth flow
+     * @param next State parameter for the OAuth flow (typically the redirect path after login)
      * @param options Optional configuration object
      * @param options.languageCode ISO 639-1 language code (e.g., 'en', 'es', 'fr')
      * @param options.customParameters Custom OAuth parameters (e.g., { login_hint: 'user@example.com', hd: 'example.com' })
      * @param options.addScopes Additional OAuth scopes (e.g., ['https://www.googleapis.com/auth/calendar.readonly'])
-     * @returns Google OAuth login URL
-     * @throws Error if Google provider not configured
+     * @returns Promise resolving to Google OAuth login URL string
+     * @throws {FirebaseEdgeError} If Google provider is not configured
      */
     async function getGoogleLoginURL(
         next: string,
@@ -213,12 +228,12 @@ export function createFirebaseEdgeServer({
      * Generates a GitHub OAuth login URL and clears any existing session.
      * Note: GitHub doesn't support language parameters - language is determined by user's browser/account settings.
      *
-     * @param next State parameter for the OAuth flow
+     * @param next State parameter for the OAuth flow (typically the redirect path after login)
      * @param options Optional configuration object
      * @param options.customParameters Custom OAuth parameters (e.g., { login: 'username', allow_signup: 'false' })
      * @param options.addScopes Additional OAuth scopes (e.g., ['repo', 'gist'])
-     * @returns GitHub OAuth login URL
-     * @throws Error if GitHub provider not configured
+     * @returns Promise resolving to GitHub OAuth login URL string
+     * @throws {FirebaseEdgeError} If GitHub provider is not configured
      */
     async function getGitHubLoginURL(
         next: string,
@@ -250,9 +265,13 @@ export function createFirebaseEdgeServer({
      * Completes OAuth flow by exchanging authorization code for a session.
      *
      * @param url URL containing authorization code and state from OAuth callback
-     * @returns Promise with error information
+     * @param expiresIn_ms Session cookie expiration time in milliseconds (defaults to 5 days)
+     * @returns Promise resolving to object with next redirect path and error if any
      */
-    async function signInWithCallback(url: URL) {
+    async function signInWithCallback(
+        url: URL,
+        expiresIn_ms: number = COOKIE_LIFETIME_SECONDS * 1000
+    ) {
         const code = url.searchParams.get('code');
         const state = url.searchParams.get('state');
 
@@ -398,9 +417,7 @@ export function createFirebaseEdgeServer({
         }
 
         const { data: sessionCookie, error: sessionError } =
-            await adminAuth.createSessionCookie(idToken, {
-                expiresIn: 60 * 60 * 24 * 5 * 1000
-            });
+            await adminAuth.createSessionCookie(idToken, expiresIn_ms);
 
         if (sessionError) {
             return {
@@ -416,7 +433,7 @@ export function createFirebaseEdgeServer({
             };
         }
 
-        saveSession(_cookieName, sessionCookie, COOKIE_OPTIONS);
+        saveSession(_cookieName, sessionCookie, _cookieOptions);
 
         return {
             data: next,
@@ -426,8 +443,9 @@ export function createFirebaseEdgeServer({
 
     /**
      * Generates fresh Firebase client tokens for the authenticated user.
+     * Creates a custom token and exchanges it for a Firebase ID token and refresh token.
      *
-     * @returns Promise with token data and error
+     * @returns Promise resolving to object with Firebase tokens (idToken, refreshToken, expiresIn) and error if any
      */
     async function getToken() {
         const { data: verifiedToken, error: verifyError } = await getUser();

@@ -4,7 +4,7 @@ import {
     createAuthUri,
     signInWithIdp,
     signInWithCustomToken,
-    getAccountInfoByUid,
+    getAccountInfo,
     createSessionCookie,
     getJWKs,
     getPublicKeys,
@@ -322,7 +322,7 @@ describe('firebase-auth-endpoints', () => {
         });
     });
 
-    describe('getAccountInfoByUid', () => {
+    describe('getAccountInfo', () => {
         it('should get account info successfully', async () => {
             const mockUser = { localId: 'user-123', email: 'test@example.com' };
 
@@ -331,8 +331,8 @@ describe('firebase-auth-endpoints', () => {
                 error: null
             });
 
-            const result = await getAccountInfoByUid(
-                'user-123',
+            const result = await getAccountInfo(
+                { uid: 'user-123' },
                 ACCESS_TOKEN,
                 PROJECT_ID,
                 undefined,
@@ -354,8 +354,8 @@ describe('firebase-auth-endpoints', () => {
                     error: null
                 });
 
-            const result = await getAccountInfoByUid(
-                'user-123',
+            const result = await getAccountInfo(
+                { uid: 'user-123' },
                 ACCESS_TOKEN,
                 PROJECT_ID,
                 tenantId,
@@ -382,8 +382,8 @@ describe('firebase-auth-endpoints', () => {
                 error: null
             });
 
-            const result = await getAccountInfoByUid(
-                'user-123',
+            const result = await getAccountInfo(
+                { uid: 'user-123' },
                 ACCESS_TOKEN,
                 PROJECT_ID
             );
@@ -611,7 +611,7 @@ describe('firebase-auth-endpoints', () => {
             );
         });
 
-        it('should call accounts lookup URL with /accounts segment via getAccountInfoByUid', async () => {
+        it('should call accounts lookup URL with /accounts segment via getAccountInfo', async () => {
             const mockUser = { localId: 'user-123', email: 'test@example.com' };
 
             const restFetchSpy = vi
@@ -625,8 +625,8 @@ describe('firebase-auth-endpoints', () => {
             const token = 'access-token';
             const projectId = 'test-project';
 
-            const result = await getAccountInfoByUid(
-                uid,
+            const result = await getAccountInfo(
+                { uid },
                 token,
                 projectId,
                 undefined,
@@ -662,8 +662,8 @@ describe('firebase-auth-endpoints', () => {
                     error: null
                 });
 
-            const result = await getAccountInfoByUid(
-                'user-123',
+            const result = await getAccountInfo(
+                { uid: 'user-123' },
                 'access-token',
                 'test-project',
                 tenantId,

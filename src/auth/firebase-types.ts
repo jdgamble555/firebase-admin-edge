@@ -93,35 +93,9 @@ export type FirebaseIdTokenPayload = {
 };
 
 export interface UserMetadata {
-    creationTime: string;
-    lastSignInTime: string;
-    lastRefreshTime?: string;
-}
-
-export interface UserInfo {
-    uid: string;
-    displayName?: string;
-    email?: string;
-    photoURL?: string;
-    phoneNumber?: string;
-    providerId: string;
-}
-
-export type CustomClaims = Record<string, string | number | boolean | null>;
-
-export interface UserRecord {
-    uid: string;
-    email?: string;
-    emailVerified: boolean;
-    displayName?: string;
-    photoURL?: string;
-    phoneNumber?: string;
-    disabled: boolean;
-    metadata: UserMetadata;
-    providerData: UserInfo[];
-    tokensValidAfterTime?: string;
-    tenantId?: string;
-    customClaims?: { [key: string]: CustomClaims };
+    creationTime: string | null;
+    lastSignInTime: string | null;
+    lastRefreshTime?: string | null;
 }
 
 export interface ServiceAccount {
@@ -161,12 +135,13 @@ export interface UserInfo {
 }
 
 export interface ProviderUserInfo {
-    providerId: string;
+    providerId?: string;
     rawId?: string;
     email?: string;
     displayName?: string;
     photoUrl?: string;
     federatedId?: string;
+    phoneNumber?: string;
 }
 
 export type FirebaseUpdateAccountResponse = {

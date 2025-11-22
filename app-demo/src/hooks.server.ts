@@ -39,7 +39,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 			getCache: (name) => cache.get(name),
 		},
 		redirectUri: event.url.origin + '/auth/callback',
-		fetch: event.fetch
+		fetch: event.fetch,
+		autoLinkProviders: true
 	});
 
 	return resolve(event);

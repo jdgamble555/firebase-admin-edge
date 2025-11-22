@@ -4,7 +4,7 @@ import type {
     FirebaseRefreshTokenResponse,
     FirebaseRestError,
     FirebaseUpdateAccountResponse,
-    UserRecord
+    UserInfo
 } from './firebase-types.js';
 import { restFetch } from '../rest-fetch.js';
 import type { JsonWebKey } from 'crypto';
@@ -183,7 +183,7 @@ export async function getAccountInfo(
     };
 
     const { data, error } = await restFetch<
-        { users: UserRecord[] },
+        { users: UserInfo[] },
         FirebaseRestError
     >(url, {
         global: { fetch: fetchFn },
@@ -191,8 +191,10 @@ export async function getAccountInfo(
         bearerToken: token
     });
 
+    const userData = data?.users.length ? data.users[0] : null;
+
     return {
-        data: data?.users.length ? data.users[0] : null,
+        data: userData,
         error: error ? mapFirebaseError(error.error) : null
     };
 }

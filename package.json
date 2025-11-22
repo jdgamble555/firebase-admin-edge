@@ -33,6 +33,7 @@
     "scripts": {
         "build": "npm run clean && tsc",
         "ci": "npm run build && npm run check-format && npm run test",
+        "fci": "npm run format &&npm run ci",
         "format": "prettier --write .",
         "check-format": "prettier --check .",
         "test": "vitest run",

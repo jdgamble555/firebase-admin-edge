@@ -127,7 +127,36 @@ export class FirebaseAdminAuth {
      * @param email Email address to look up
      * @returns Promise with object containing user data or null, and error if any
      */
-    async getUserByEmail(email: string) {}
+    async getUserByEmail(email: string) {
+        const { data: token, error: tokenError } = await this.getCachedToken();
+
+        if (tokenError) {
+            return {
+                data: null,
+                error: tokenError
+            };
+        }
+
+        const { data, error } = await getAccountInfo(
+            { email },
+            token.access_token,
+            this.serviceAccountKey.project_id,
+            this.tenantId,
+            this.fetch
+        );
+
+        if (error) {
+            return {
+                data: null,
+                error
+            };
+        }
+
+        return {
+            data,
+            error: null
+        };
+    }
 
     /**
      * Verifies a Firebase ID token and returns the decoded payload.
@@ -221,16 +250,11 @@ export class FirebaseAdminAuth {
             };
         }
 
-        if (user.tokensValidAfterTime) {
-            // Get the ID token authentication time and convert to milliseconds UTC.
-            const authTimeUtc = decodedIdToken!.auth_time * 1000;
+        if (user.validSince) {
+            const validSinceSeconds = Number(user.validSince);
+            const authTimeSeconds = decodedIdToken!.auth_time;
 
-            // Get user tokens valid after time in milliseconds UTC.
-            const validSinceUtc = new Date(user.tokensValidAfterTime).getTime();
-
-            // Check if authentication time is older than valid since time.
-
-            if (authTimeUtc < validSinceUtc) {
+            if (authTimeSeconds < validSinceSeconds) {
                 return {
                     data: null,
                     error: new FirebaseEdgeError(

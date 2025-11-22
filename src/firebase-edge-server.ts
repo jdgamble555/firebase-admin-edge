@@ -261,6 +261,119 @@ export function createFirebaseEdgeServer({
         );
     }
 
+    async function signInWithProviderToken(
+        provider: string,
+        oauthToken: string
+    ) {
+        const providerId = provider === 'google' ? 'google.com' : 'github.com';
+
+        const { data: signInData, error: signInError } =
+            await auth.signInWithProvider(oauthToken, providerId);
+
+        if (signInError) {
+            return {
+                error: signInError
+            };
+        }
+
+        if (!signInData) {
+            return {
+                error: new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_NO_SIGN_IN_DATA
+                )
+            };
+        }
+
+        // Account exists with that email but different sign-in method
+        if (signInData.needConfirmation) {
+            if (!autoLinkProviders) {
+                return {
+                    error: new FirebaseEdgeError(
+                        FirebaseEdgeServerErrorInfo.EDGE_ACCOUNT_EXISTS_DIFFERENT_METHOD
+                    )
+                };
+            }
+
+            if (!signInData.email) {
+                return {
+                    error: new FirebaseEdgeError(
+                        FirebaseEdgeServerErrorInfo.EDGE_NO_EMAIL_FOR_AUTO_LINKING
+                    )
+                };
+            }
+
+            const { data, error: getEmailError } =
+                await adminAuth.getUserByEmail(signInData.email);
+
+            if (getEmailError) {
+                return {
+                    error: getEmailError
+                };
+            }
+
+            if (!data?.localId) {
+                return {
+                    error: new FirebaseEdgeError(
+                        FirebaseEdgeServerErrorInfo.EDGE_NO_USER_RECORD
+                    )
+                };
+            }
+
+            const { data: customTokenData, error: tokenError } =
+                await adminAuth.createCustomToken(data.localId);
+
+            if (tokenError) {
+                return {
+                    data: null,
+                    error: tokenError
+                };
+            }
+
+            const { data: customSignInData, error: customSignInError } =
+                await auth.signInWithCustomToken(customTokenData);
+
+            if (customSignInError) {
+                return {
+                    data: null,
+                    error: customSignInError
+                };
+            }
+
+            if (!customSignInData?.idToken) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseEdgeServerErrorInfo.EDGE_NO_ID_TOKEN
+                    )
+                };
+            }
+
+            const { data: linkData, error: linkError } =
+                await auth.linkWithCredential(
+                    customSignInData.idToken,
+                    oauthToken,
+                    providerId
+                );
+
+            if (linkError) {
+                return {
+                    data: null,
+                    error: linkError
+                };
+            }
+
+            return {
+                data: linkData,
+                error: null
+            };
+        }
+
+        return {
+            data: signInData,
+            error: signInError
+        };
+    }
+
     /**
      * Completes OAuth flow by exchanging authorization code for a session.
      *
@@ -366,10 +479,8 @@ export function createFirebaseEdgeServer({
             };
         }
 
-        const providerId = provider === 'google' ? 'google.com' : 'github.com';
-
         const { data: signInData, error: signInError } =
-            await auth.signInWithProvider(oauthToken, providerId);
+            await signInWithProviderToken(provider, oauthToken);
 
         if (signInError) {
             return {
@@ -385,28 +496,7 @@ export function createFirebaseEdgeServer({
             };
         }
 
-        if (signInData.needConfirmation) {
-            if (autoLinkProviders) {
-                // Implement auto-linking logic here
-            }
-
-            // const uid = await admin.getUserByEmail(email)
-            // const customToken = await createCustomToken(uid)
-            // const firebaseToken = await signInWithCustomToken(customToken)
-            // linkWithCredential(firebaseToken, providerToken, providerId)
-
-            return {
-                error: new FirebaseEdgeError(
-                    FirebaseEdgeServerErrorInfo.EDGE_ACCOUNT_EXISTS_DIFFERENT_METHOD
-                )
-            };
-        }
-
-        const idToken =
-            signInData?.idToken ??
-            signInData?.oauthIdToken ??
-            signInData?.oauthAccessToken ??
-            null;
+        const { idToken } = signInData;
 
         if (!idToken) {
             return {

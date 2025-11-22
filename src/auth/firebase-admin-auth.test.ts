@@ -3,8 +3,8 @@ import { FirebaseAdminAuth } from './firebase-admin-auth.js';
 import type {
     ServiceAccount,
     GoogleTokenResponse,
-    UserRecord,
-    FirebaseIdTokenPayload
+    FirebaseIdTokenPayload,
+    UserInfo
 } from './firebase-types.js';
 import {
     getAccountInfo,
@@ -69,16 +69,11 @@ const mockGoogleTokenResponse: GoogleTokenResponse = {
     id_token: 'test-id-token'
 };
 
-const mockUserRecord: UserRecord = {
-    uid: 'uid-1',
+const mockUserRecord: UserInfo = {
+    localId: 'uid-1',
     email: 'test@example.com',
     emailVerified: true,
-    disabled: false,
-    metadata: {
-        creationTime: new Date().toISOString(),
-        lastSignInTime: new Date().toISOString()
-    },
-    providerData: []
+    disabled: false
 };
 
 const mockFirebasePayload: FirebaseIdTokenPayload = {
@@ -327,7 +322,7 @@ describe('FirebaseAdminAuth', () => {
                 data: {
                     ...mockUserRecord,
                     disabled: false,
-                    tokensValidAfterTime: new Date(2000000 * 1000).toISOString()
+                    validSince: '2000000'
                 },
                 error: null
             });
@@ -359,7 +354,7 @@ describe('FirebaseAdminAuth', () => {
                 data: {
                     ...mockUserRecord,
                     disabled: false,
-                    tokensValidAfterTime: new Date(1000 * 1000).toISOString()
+                    validSince: '1000'
                 },
                 error: null
             });

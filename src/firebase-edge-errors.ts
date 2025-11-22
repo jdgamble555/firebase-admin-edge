@@ -39,6 +39,11 @@ export const FirebaseEdgeServerErrorInfo = {
         code: 'edge/no-sign-in-data'
     },
 
+    EDGE_NO_USER_RECORD: {
+        message: 'No user record found after sign-in.',
+        code: 'edge/no-user-record'
+    },
+
     // Token and Session Errors
     EDGE_NO_ID_TOKEN: {
         message: 'No ID token obtained from sign-in.',
@@ -55,6 +60,10 @@ export const FirebaseEdgeServerErrorInfo = {
     EDGE_ACCOUNT_EXISTS_DIFFERENT_METHOD: {
         message: 'Account exists with a different sign-in method.',
         code: 'edge/account-exists-different-method'
+    },
+    EDGE_NO_EMAIL_FOR_AUTO_LINKING: {
+        message: 'No email available for auto-linking accounts.',
+        code: 'edge/no-email-for-auto-linking'
     },
 
     // Session Management Errors

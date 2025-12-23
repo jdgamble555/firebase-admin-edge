@@ -2,10 +2,10 @@ import { redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { getPathname } from '$lib/svelte-helpers';
 
-export const load = (async ({ locals: { authServer }, url }) => {
+export const load = (async ({ parent, url }) => {
 	const next = url.searchParams.get('next') || '/';
 
-	const { data: user } = await authServer.getUser();
+	const { user } = await parent();
 
 	if (user) {
 		redirect(302, next);

@@ -28,6 +28,7 @@ describe('OAuth', () => {
                 expect(
                     JSON.parse(parsed.searchParams.get('state') ?? '')
                 ).toEqual({
+                    intent: 'signin',
                     next: '/next/path',
                     provider: 'github'
                 });
@@ -53,6 +54,7 @@ describe('OAuth', () => {
                 );
                 expect(state.next).toBe('/dashboard?tab=settings&theme=dark');
                 expect(state.provider).toBe('github');
+                expect(state.intent).toBe('signin');
             });
 
             it('adds custom parameters to URL', () => {
@@ -60,6 +62,7 @@ describe('OAuth', () => {
                     'https://example.com/callback',
                     '/next/path',
                     'client-123',
+                    'signin',
                     { login: 'testuser', allow_signup: 'false' }
                 );
                 const parsed = new URL(url);
@@ -73,6 +76,7 @@ describe('OAuth', () => {
                     'https://example.com/callback',
                     '/next/path',
                     'client-123',
+                    'signin',
                     undefined,
                     ['repo', 'gist']
                 );
@@ -88,6 +92,7 @@ describe('OAuth', () => {
                     'https://example.com/callback',
                     '/next/path',
                     'client-123',
+                    'signin',
                     { login: 'testuser' },
                     ['repo']
                 );
@@ -125,6 +130,7 @@ describe('OAuth', () => {
                 expect(
                     JSON.parse(parsed.searchParams.get('state') ?? '')
                 ).toEqual({
+                    intent: 'signin',
                     next: '/next/path',
                     provider: 'google'
                 });
@@ -135,6 +141,7 @@ describe('OAuth', () => {
                     'https://example.com/callback',
                     '/next/path',
                     'client-123',
+                    'signin',
                     'es'
                 );
                 const parsed = new URL(url);
@@ -147,6 +154,7 @@ describe('OAuth', () => {
                     'https://example.com/callback',
                     '/next/path',
                     'client-123',
+                    'signin',
                     undefined,
                     { login_hint: 'user@example.com', hd: 'example.com' }
                 );
@@ -163,6 +171,7 @@ describe('OAuth', () => {
                     'https://example.com/callback',
                     '/next/path',
                     'client-123',
+                    'signin',
                     undefined,
                     undefined,
                     [
@@ -182,6 +191,7 @@ describe('OAuth', () => {
                     'https://example.com/callback',
                     '/next/path',
                     'client-123',
+                    'signin',
                     'fr',
                     { login_hint: 'user@example.com' },
                     ['https://www.googleapis.com/auth/calendar.readonly']
@@ -212,6 +222,7 @@ describe('OAuth', () => {
                     parsed.searchParams.get('state') ?? '{}'
                 );
                 expect(state.next).toBe('/path with spaces & symbols!');
+                expect(state.intent).toBe('signin');
             });
 
             it('properly encodes special characters in Google URLs', () => {

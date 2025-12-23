@@ -17,6 +17,7 @@
 		<a href="/" class="font-medium text-gray-700 hover:text-blue-600">Home</a>
 		{#if page.data.user}
 			<Logout />
+			<a href="/dashboard" class="font-medium text-gray-700 hover:text-blue-600">Dashboard</a>
 		{:else}
 			<a href="/login" class="font-medium text-gray-700 hover:text-blue-600">Login</a>
 		{/if}

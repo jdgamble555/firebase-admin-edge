@@ -2,10 +2,10 @@ export function createGitHubOAuthLoginUrl(
     redirect_uri: string,
     path: string,
     client_id: string,
+    intent: 'signin' | 'link' = 'signin',
     customParameters?: Record<string, string>,
     addScopes?: string[]
 ) {
-    // Build scope string with default scopes and additional ones
     const baseScopes = ['read:user', 'user:email'];
     const scopes = addScopes ? [...baseScopes, ...addScopes] : baseScopes;
 
@@ -14,26 +14,27 @@ export function createGitHubOAuthLoginUrl(
         redirect_uri,
         scope: scopes.join(' '),
         state: JSON.stringify({
+            intent,
             next: path,
             provider: 'github'
         })
     };
 
-    // Add custom parameters if provided (e.g., 'login', 'allow_signup')
     if (customParameters) {
         Object.assign(params, customParameters);
     }
 
-    return new URL(
+    return (
         'https://github.com/login/oauth/authorize?' +
-            new URLSearchParams(params).toString()
-    ).toString();
+        new URLSearchParams(params).toString()
+    );
 }
 
 export function createGoogleOAuthLoginUrl(
     redirect_uri: string,
     path: string,
     client_id: string,
+    intent: 'signin' | 'link' = 'signin',
     languageCode?: string,
     customParameters?: Record<string, string>,
     addScopes?: string[]
@@ -50,6 +51,7 @@ export function createGoogleOAuthLoginUrl(
         access_type: 'offline',
         prompt: 'consent',
         state: JSON.stringify({
+            intent,
             next: path,
             provider: 'google'
         })
@@ -65,8 +67,8 @@ export function createGoogleOAuthLoginUrl(
         Object.assign(params, customParameters);
     }
 
-    return new URL(
+    return (
         'https://accounts.google.com/o/oauth2/v2/auth?' +
-            new URLSearchParams(params).toString()
-    ).toString();
+        new URLSearchParams(params).toString()
+    );
 }

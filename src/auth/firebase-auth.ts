@@ -1,7 +1,8 @@
 import {
     signInWithCustomToken,
     signInWithIdp,
-    linkWithOAuthCredential
+    linkWithOAuthCredential,
+    unlinkProvider
 } from './firebase-auth-endpoints.js';
 import type { FirebaseConfig } from './firebase-types.js';
 import { FirebaseEdgeError, ensureError } from './errors.js';
@@ -182,7 +183,7 @@ export class FirebaseAuth {
                 return {
                     data: null,
                     error: new FirebaseEdgeError(
-                        FirebaseAuthErrorInfo.AUTH_PROVIDER_SIGN_IN_FAILED,
+                        FirebaseAuthErrorInfo.AUTH_PROVIDER_LINK_FAILED,
                         {
                             cause: ensureError(linkError),
                             context: { providerId, requestUri: this.requestUri }
@@ -215,13 +216,74 @@ export class FirebaseAuth {
             return {
                 data: null,
                 error: new FirebaseEdgeError(
-                    FirebaseAuthErrorInfo.AUTH_PROVIDER_SIGN_IN_FAILED,
+                    FirebaseAuthErrorInfo.AUTH_PROVIDER_LINK_FAILED,
                     {
                         cause: ensureError(err),
                         context: {
                             providerId,
                             requestUri: this.requestUri,
                             operation: 'linkWithCredential'
+                        }
+                    }
+                )
+            };
+        }
+    }
+
+    async unlink(idToken: string, providerId: string) {
+        try {
+            const { data: unlinkData, error: unlinkError } =
+                await unlinkProvider(
+                    idToken,
+                    providerId,
+                    this.firebase_config.apiKey,
+                    this.tenantId,
+                    this.fetch
+                );
+
+            if (unlinkError) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAuthErrorInfo.AUTH_PROVIDER_UNLINK_FAILED,
+                        {
+                            cause: ensureError(unlinkError),
+                            context: { providerId }
+                        }
+                    )
+                };
+            }
+
+            if (!unlinkData) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAuthErrorInfo.AUTH_PROVIDER_DATA_MISSING,
+                        {
+                            context: {
+                                providerId,
+                                operation: 'unlink'
+                            }
+                        }
+                    )
+                };
+            }
+
+            return {
+                data: unlinkData,
+                error: null
+            };
+        } catch (err) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAuthErrorInfo.AUTH_PROVIDER_UNLINK_FAILED,
+                    {
+                        cause: ensureError(err),
+                        context: {
+                            providerId,
+                            requestUri: this.requestUri,
+                            operation: 'unlink'
                         }
                     }
                 )

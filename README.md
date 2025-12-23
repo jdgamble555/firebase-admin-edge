@@ -119,6 +119,27 @@ await firebaseServer.signOut();
 redirect(302, '/');
 ```
 
+**Link Provider**
+
+```ts
+// 1) Start link: redirect to provider
+const next = '/dashboard';
+const linkURL = await firebaseServer.getGoogleLinkURL(next);
+// or: linkURL = await firebaseServer.getGitHubLinkURL(next);
+redirect(302, linkURL);
+
+// 2) Callback: same handler as normal login
+const { data: returnTo, error } = await firebaseServer.signInWithCallback(url);
+
+redirect(302, returnTo);
+```
+
+**Unlink Provider**
+
+```ts
+const { error } = await firebaseServer.unlinkProvider('google.com');
+```
+
 ## Features
 
 - ✅ **Edge Runtime Compatible** - Works in Vercel Edge, Cloudflare Workers, Deno, and Bun
@@ -130,11 +151,11 @@ redirect(302, '/');
 - ✅ **Token Caching** - Optional caching for service account tokens (1-hour TTL)
 - ✅ **Multi-Tenancy** - Support for Firebase Auth tenant IDs
 - ✅ **Flexible Configuration** - Customizable cookie options and cache implementations
+- ✅ **Link and Unlink Providers** - Link and unlink oauth providers
 
 ## Firebase Auth Todo
 
 - ☐ Magic Link Login (auto save email option)
-- ☐ Link and Unlink Providers
 - ☐ Email / Password / Annonymous Login
 - ☐ Reset Password
 - ☐ Change Email

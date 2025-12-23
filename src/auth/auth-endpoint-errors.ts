@@ -121,6 +121,17 @@ export function mapFirebaseError(
         firebaseErrorCode.includes('WEAK_PASSWORD') ||
         firebaseErrorCode.includes('EMAIL_EXISTS') ||
         firebaseErrorCode.includes('INVALID_PASSWORD') ||
+        firebaseErrorCode.includes('MISSING_LOCAL_ID') ||
+        firebaseErrorCode.includes('MISSING_EMAIL') ||
+        firebaseErrorCode.includes('MISSING_PASSWORD') ||
+        firebaseErrorCode.includes('MISSING_ID_TOKEN') ||
+        firebaseErrorCode.includes('MISSING_OOB_CODE') ||
+        firebaseErrorCode.includes('MISSING_SESSION_INFO') ||
+        firebaseErrorCode.includes('MISSING_PHONE_NUMBER') ||
+        firebaseErrorCode.includes('MISSING_CODE') ||
+        firebaseErrorCode.includes('MISSING_REQ_TYPE') ||
+        firebaseErrorCode.includes('MISSING_PROVIDER_ID') ||
+        firebaseErrorCode.includes('MISSING_CONTINUE_URI') ||
         firebaseErrorCode.includes('MISSING_REFRESH_TOKEN') ||
         firebaseErrorCode.includes('INVALID_GRANT_TYPE')
     ) {

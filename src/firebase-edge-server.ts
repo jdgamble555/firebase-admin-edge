@@ -218,6 +218,7 @@ export function createFirebaseEdgeServer({
             redirectUri,
             next,
             client_id,
+            'signin',
             options?.languageCode,
             options?.customParameters,
             options?.addScopes
@@ -256,10 +257,19 @@ export function createFirebaseEdgeServer({
             redirectUri,
             next,
             client_id,
+            'link',
             options?.customParameters,
             options?.addScopes
         );
     }
+
+    /**
+     * Signs a user in using an already-obtained provider token.
+     *
+     * @param provider Provider slug ('google' or 'github')
+     * @param oauthToken Provider token (Google `id_token` or GitHub `access_token`)
+     * @returns Promise resolving to an object containing sign-in data and/or an error
+     */
 
     async function signInWithProviderToken(
         provider: string,
@@ -397,12 +407,14 @@ export function createFirebaseEdgeServer({
         }
 
         let next = '/';
-        let provider = null;
+        let provider: string | null = null;
+        let intent: 'signin' | 'link' | null = null;
 
         try {
             const parsed = state && JSON.parse(state);
             next = parsed?.next ?? '/';
             provider = parsed?.provider ?? null;
+            intent = parsed?.intent ?? null;
         } catch {}
 
         if (!provider) {
@@ -476,6 +488,51 @@ export function createFirebaseEdgeServer({
                 error: new FirebaseEdgeError(
                     FirebaseEdgeServerErrorInfo.EDGE_NO_OAUTH_TOKEN
                 )
+            };
+        }
+
+        if (intent === 'link') {
+            const providerId =
+                provider === 'google' ? 'google.com' : 'github.com';
+
+            const { error: linkError } = await linkProvider(
+                oauthToken,
+                providerId
+            );
+            if (linkError) {
+                return {
+                    error: linkError
+                };
+            }
+
+            const { data: userData, error: userError } = await getUser();
+
+            if (userError) {
+                return {
+                    error: userError
+                };
+            }
+
+            if (!userData?.user_id) {
+                return {
+                    error: new FirebaseEdgeError(
+                        FirebaseEdgeServerErrorInfo.EDGE_NO_USER_FOR_LINKING
+                    )
+                };
+            }
+
+            const { error: revokeError } = await adminAuth.revokeRefreshTokens(
+                userData.user_id
+            );
+
+            if (revokeError) {
+                return {
+                    error: revokeError
+                };
+            }
+            return {
+                data: next,
+                error: null
             };
         }
 
@@ -598,6 +655,203 @@ export function createFirebaseEdgeServer({
         };
     }
 
+    /**
+     * Unlinks a provider from the currently authenticated user.
+     *
+     * @param providerId Firebase provider ID (e.g. 'google.com', 'github.com')
+     * @param expiresIn_ms Session cookie expiration time in milliseconds (defaults to 5 days)
+     * @returns Promise resolving to the unlink response data and/or an error
+     */
+    async function unlinkProvider(
+        provider: string,
+        expiresIn_ms: number = COOKIE_LIFETIME_SECONDS * 1000
+    ) {
+        const { data: verifiedToken, error: verifyError } = await getToken();
+
+        if (verifyError) {
+            return {
+                data: null,
+                error: verifyError
+            };
+        }
+
+        if (!verifiedToken?.idToken) {
+            return {
+                data: null,
+                error: null
+            };
+        }
+
+        const { data: unlinkData, error: unlinkError } = await auth.unlink(
+            verifiedToken.idToken,
+            provider
+        );
+
+        if (unlinkError) {
+            return {
+                data: null,
+                error: unlinkError
+            };
+        }
+
+        const { data: idToken, error: idTokenError } = await getToken();
+
+        if (idTokenError) {
+            return {
+                error: idTokenError
+            };
+        }
+
+        if (!idToken?.idToken) {
+            return {
+                error: new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_NO_ID_TOKEN
+                )
+            };
+        }
+
+        const { data: sessionCookie, error: sessionError } =
+            await adminAuth.createSessionCookie(idToken.idToken, expiresIn_ms);
+
+        if (sessionError) {
+            return {
+                error: sessionError
+            };
+        }
+
+        if (!sessionCookie) {
+            return {
+                error: new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_NO_SESSION_COOKIE
+                )
+            };
+        }
+
+        saveSession(_cookieName, sessionCookie, _cookieOptions);
+
+        return {
+            data: unlinkData,
+            error: null
+        };
+    }
+
+    /**
+     * Generates a Google OAuth URL for linking an additional provider to the current user.
+     *
+     * @param next State parameter for the OAuth flow (typically the redirect path after linking)
+     * @param options Optional configuration object
+     * @param options.languageCode ISO 639-1 language code (e.g., 'en', 'es', 'fr')
+     * @param options.customParameters Custom OAuth parameters (e.g., { login_hint: 'user@example.com' })
+     * @param options.addScopes Additional OAuth scopes (e.g., ['https://www.googleapis.com/auth/calendar.readonly'])
+     * @returns Promise resolving to Google OAuth link URL string
+     * @throws {FirebaseEdgeError} If Google provider is not configured
+     */
+    async function getGoogleLinkURL(
+        next: string,
+        options?: {
+            languageCode?: string;
+            customParameters?: Record<string, string>;
+            addScopes?: string[];
+        }
+    ) {
+        if (!providers.google) {
+            throw new FirebaseEdgeError(
+                FirebaseEdgeServerErrorInfo.EDGE_GOOGLE_PROVIDER_NOT_CONFIGURED
+            );
+        }
+
+        const { client_id } = providers.google;
+
+        return createGoogleOAuthLoginUrl(
+            redirectUri,
+            next,
+            client_id,
+            'link',
+            options?.languageCode,
+            options?.customParameters,
+            options?.addScopes
+        );
+    }
+
+    /**
+     * Generates a GitHub OAuth URL for linking an additional provider to the current user.
+     *
+     * @param next State parameter for the OAuth flow (typically the redirect path after linking)
+     * @param options Optional configuration object
+     * @param options.customParameters Custom OAuth parameters (e.g., { login: 'username', allow_signup: 'false' })
+     * @param options.addScopes Additional OAuth scopes (e.g., ['repo', 'gist'])
+     * @returns Promise resolving to GitHub OAuth link URL string
+     * @throws {FirebaseEdgeError} If GitHub provider is not configured
+     */
+    async function getGitHubLinkURL(
+        next: string,
+        options?: {
+            customParameters?: Record<string, string>;
+            addScopes?: string[];
+        }
+    ) {
+        if (!providers.github) {
+            throw new FirebaseEdgeError(
+                FirebaseEdgeServerErrorInfo.EDGE_GITHUB_PROVIDER_NOT_CONFIGURED
+            );
+        }
+
+        const { client_id } = providers.github;
+
+        return createGitHubOAuthLoginUrl(
+            redirectUri,
+            next,
+            client_id,
+            'signin',
+            options?.customParameters,
+            options?.addScopes
+        );
+    }
+
+    /**
+     * Links an OAuth provider to the currently authenticated user.
+     *
+     * @param providerToken Provider token (Google `id_token` or GitHub `access_token`)
+     * @param providerId Firebase provider ID (e.g. 'google.com', 'github.com')
+     * @returns Promise resolving to link response data and/or an error
+     */
+    async function linkProvider(providerToken: string, providerId: string) {
+        const { data: verifiedToken, error: verifyError } = await getToken();
+
+        if (verifyError) {
+            return {
+                data: null,
+                error: verifyError
+            };
+        }
+
+        if (!verifiedToken?.idToken) {
+            return {
+                data: null,
+                error: null
+            };
+        }
+
+        const { data: unlinkData, error: unlinkError } =
+            await auth.linkWithCredential(
+                verifiedToken.idToken,
+                providerToken,
+                providerId
+            );
+
+        if (unlinkError) {
+            return {
+                data: null,
+                error: unlinkError
+            };
+        }
+
+        return {
+            data: unlinkData,
+            error: null
+        };
+    }
+
     return {
         auth,
         adminAuth,
@@ -605,7 +859,11 @@ export function createFirebaseEdgeServer({
         getUser,
         getGoogleLoginURL,
         getGitHubLoginURL,
+        getGoogleLinkURL,
+        getGitHubLinkURL,
         signInWithCallback,
-        getToken
+        getToken,
+        linkProvider,
+        unlinkProvider
     };
 }

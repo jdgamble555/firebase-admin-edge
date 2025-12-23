@@ -65,6 +65,10 @@ export const FirebaseEdgeServerErrorInfo = {
         message: 'No email available for auto-linking accounts.',
         code: 'edge/no-email-for-auto-linking'
     },
+    EDGE_NO_USER_FOR_LINKING: {
+        message: 'No user is signed in for linking providers.',
+        code: 'edge/no-user-for-linking'
+    },
 
     // Session Management Errors
     EDGE_SESSION_EXPIRED: {

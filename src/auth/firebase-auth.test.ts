@@ -216,9 +216,9 @@ describe('FirebaseAuth', () => {
 
             expect(result.data).toBeNull();
             expect(result.error).toBeInstanceOf(FirebaseEdgeError);
-            expect(result.error?.code).toBe('auth/provider-sign-in-failed');
+            expect(result.error?.code).toBe('auth/provider-link-failed');
             expect(result.error?.message).toBe(
-                FirebaseAuthErrorInfo.AUTH_PROVIDER_SIGN_IN_FAILED.message
+                FirebaseAuthErrorInfo.AUTH_PROVIDER_LINK_FAILED.message
             );
         });
 
@@ -255,7 +255,7 @@ describe('FirebaseAuth', () => {
 
             expect(result.data).toBeNull();
             expect(result.error).toBeInstanceOf(FirebaseEdgeError);
-            expect(result.error?.code).toBe('auth/provider-sign-in-failed');
+            expect(result.error?.code).toBe('auth/provider-link-failed');
         });
     });
 });

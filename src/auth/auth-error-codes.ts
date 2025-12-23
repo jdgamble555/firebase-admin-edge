@@ -114,6 +114,10 @@ export const FirebaseAdminAuthErrorInfo = {
         message: 'Failed to check if token has been revoked.',
         code: 'auth/admin-token-revocation-check-failed'
     },
+    ADMIN_REVOKE_TOKENS_FAILED: {
+        message: 'Failed to revoke refresh tokens for the user.',
+        code: 'auth/admin-revoke-tokens-failed'
+    },
     ADMIN_TOKENS_VALID_AFTER_CHECK_FAILED: {
         message:
             'Failed to validate token against user tokens valid after time.',
@@ -350,6 +354,14 @@ export const FirebaseAuthErrorInfo = {
     AUTH_PROVIDER_SIGN_IN_FAILED: {
         message: 'Failed to sign in with identity provider.',
         code: 'auth/provider-sign-in-failed'
+    },
+    AUTH_PROVIDER_LINK_FAILED: {
+        message: 'Failed to link identity provider credential.',
+        code: 'auth/provider-link-failed'
+    },
+    AUTH_PROVIDER_UNLINK_FAILED: {
+        message: 'Failed to unlink identity provider.',
+        code: 'auth/provider-unlink-failed'
     },
     AUTH_INVALID_PROVIDER_ID: {
         message: 'The provider ID is not supported.',

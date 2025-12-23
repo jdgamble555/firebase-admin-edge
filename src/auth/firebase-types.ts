@@ -150,14 +150,38 @@ export type FirebaseUpdateAccountResponse = {
     displayName?: string;
     photoUrl?: string;
     passwordHash?: string;
-    providerUserInfo?: Array<{
-        providerId: string;
-        federatedId: string;
-        displayName?: string;
-        photoUrl?: string;
-    }>;
+    providerUserInfo?: ProviderUserInfo[];
     idToken?: string;
     refreshToken?: string;
     expiresIn?: string;
     emailVerified?: boolean;
+};
+
+export type UpdateAccountRequest = {
+    // common end-user fields (but we also allow extras)
+    displayName?: string;
+    email?: string;
+    password?: string;
+    photoUrl?: string;
+    phoneNumber?: string;
+    deleteProvider?: string[];
+    deleteAttribute?: Array<
+        // matches UserAttributeName enum values; keep as string if you don’t want to pin it
+        | 'EMAIL'
+        | 'DISPLAY_NAME'
+        | 'PHOTO_URL'
+        | 'PASSWORD'
+        | 'PHONE_NUMBER'
+        | string
+    >;
+    returnSecureToken?: boolean;
+    tenantId?: string;
+
+    // admin-ish / privileged fields (still valid in the API, but may require OAuth)
+    disabledUser?: boolean;
+    validSince?: string; // seconds since epoch (int64-as-string)
+    customAttributes?: string;
+
+    // allow forward-compatible extra fields without `any`
+    [k: string]: unknown;
 };

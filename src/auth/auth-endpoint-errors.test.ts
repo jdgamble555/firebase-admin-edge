@@ -292,6 +292,18 @@ describe('mapFirebaseError', () => {
             );
         });
 
+        it('maps MISSING_LOCAL_ID to invalid argument', () => {
+            const error = mapFirebaseError({
+                code: 400,
+                message: 'MISSING_LOCAL_ID'
+            });
+
+            expect(error).toBeInstanceOf(FirebaseEdgeError);
+            expect(error.code).toBe(
+                FirebaseEndpointErrorInfo.ENDPOINT_INVALID_ARGUMENT.code
+            );
+        });
+
         it('maps INVALID_GRANT_TYPE to invalid refresh token', () => {
             const error = mapFirebaseError({
                 code: 400,

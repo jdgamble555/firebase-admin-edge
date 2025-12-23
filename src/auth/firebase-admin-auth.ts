@@ -1,6 +1,7 @@
 import {
     createSessionCookie,
-    getAccountInfo
+    getAccountInfo,
+    revokeRefreshTokens
 } from './firebase-auth-endpoints.js';
 import {
     signJWTCustomToken,
@@ -402,6 +403,52 @@ export class FirebaseAdminAuth {
 
         return {
             data,
+            error: null
+        };
+    }
+
+    /**
+     * Revokes a user's refresh tokens.
+     *
+     * @param uid User ID to revoke tokens for
+     * @returns Promise with object containing revoke response data or null, and error if any
+     */
+    async revokeRefreshTokens(uid: string) {
+        const { data: token, error: getTokenError } =
+            await this.getCachedToken();
+
+        if (getTokenError) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED,
+                    { cause: getTokenError }
+                )
+            };
+        }
+
+        const { data: revokeData, error: revokeError } =
+            await revokeRefreshTokens(
+                this.serviceAccountKey.project_id,
+                uid,
+                token.access_token,
+                this.fetch,
+                this.tenantId
+            );
+
+        if (revokeError) {
+            console.error('Error revoking tokens:', revokeError);
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_REVOKE_TOKENS_FAILED,
+                    { cause: ensureError(revokeError) }
+                )
+            };
+        }
+
+        return {
+            data: revokeData,
             error: null
         };
     }

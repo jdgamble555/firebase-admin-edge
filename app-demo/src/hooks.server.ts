@@ -36,7 +36,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		},
 		cache: {
 			setCache: (name, value, ttl_ms) => cache.set(name, value, ttl_ms),
-			getCache: (name) => cache.get(name),
+			getCache: (name) => cache.get(name)
 		},
 		redirectUri: event.url.origin + '/auth/callback',
 		fetch: event.fetch,

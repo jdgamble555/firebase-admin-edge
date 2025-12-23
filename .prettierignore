@@ -1,1 +1,11 @@
-app-demo/
+# Include the demo app sources, but ignore generated artifacts/large files
+app-demo/node_modules/
+app-demo/.svelte-kit/
+app-demo/.vercel/
+app-demo/test-results/
+app-demo/package-lock.json
+app-demo/pnpm-lock.yaml
+app-demo/yarn.lock
+app-demo/bun.lock
+app-demo/bun.lockb
+app-demo/static/

@@ -4,6 +4,7 @@ import type {
     FirebaseRefreshTokenResponse,
     FirebaseRestError,
     FirebaseUpdateAccountResponse,
+    UpdateAccountRequest,
     UserInfo
 } from './firebase-types.js';
 import { restFetch } from '../rest-fetch.js';
@@ -13,6 +14,11 @@ import type { FirebaseEdgeError } from './errors.js';
 
 // Functions
 
+/**
+ * Builds an Identity Toolkit Admin API URL.
+ *
+ * If a tenant ID is provided, the URL targets Identity Platform tenant resources.
+ */
 function createAdminIdentityURL(
     project_id: string,
     name: string,
@@ -26,11 +32,23 @@ function createAdminIdentityURL(
     return `https://identitytoolkit.googleapis.com/v1/projects/${project_id}${accounts ? '/accounts' : ''}:${name}`;
 }
 
+/**
+ * Builds a standard Firebase Auth REST API URL.
+ *
+ * Note: tenant ID is provided in the request body for these endpoints.
+ */
 function createIdentityURL(name: string) {
     // Standard Firebase Auth REST API - tenant ID goes in request body, not URL
     return `https://identitytoolkit.googleapis.com/v1/accounts:${name}`;
 }
 
+/**
+ * Exchanges a refresh token for a new Firebase ID token.
+ *
+ * @param refreshToken Firebase refresh token.
+ * @param key Firebase Web API key.
+ * @param fetchFn Optional fetch implementation (useful for runtimes like edge).
+ */
 export async function refreshFirebaseIdToken(
     refreshToken: string,
     key: string,
@@ -59,6 +77,14 @@ export async function refreshFirebaseIdToken(
     };
 }
 
+/**
+ * Creates an Auth URI to initiate an OAuth sign-in flow (Google by default).
+ *
+ * @param redirect_uri Redirect/continue URL.
+ * @param key Firebase Web API key.
+ * @param tenantId Optional tenant ID.
+ * @param fetchFn Optional fetch implementation.
+ */
 export async function createAuthUri(
     redirect_uri: string,
     key: string,
@@ -90,6 +116,16 @@ export async function createAuthUri(
     };
 }
 
+/**
+ * Signs a user in via an identity provider (Google/GitHub/etc.) using the IdP token.
+ *
+ * @param providerIdToken The IdP token (GitHub access token or OIDC ID token).
+ * @param requestUri The origin/URL of the sign-in request.
+ * @param providerId Provider ID (e.g. "google.com", "github.com").
+ * @param key Firebase Web API key.
+ * @param tenantId Optional tenant ID.
+ * @param fetchFn Optional fetch implementation.
+ */
 export async function signInWithIdp(
     providerIdToken: string,
     requestUri: string,
@@ -133,6 +169,14 @@ export async function signInWithIdp(
     };
 }
 
+/**
+ * Signs a user in with a Firebase custom token.
+ *
+ * @param jwtToken Firebase custom token (JWT).
+ * @param key Firebase Web API key.
+ * @param tenantId Optional tenant ID.
+ * @param fetchFn Optional fetch implementation.
+ */
 export async function signInWithCustomToken(
     jwtToken: string,
     key: string,
@@ -164,6 +208,15 @@ export async function signInWithCustomToken(
     };
 }
 
+/**
+ * Looks up a user record by UID, email, or phone number.
+ *
+ * @param identifier Lookup key (uid/email/phoneNumber).
+ * @param token Google OAuth access token with Identity Toolkit scope.
+ * @param project_id Firebase project ID.
+ * @param tenantId Optional tenant ID.
+ * @param fetchFn Optional fetch implementation.
+ */
 export async function getAccountInfo(
     identifier: { uid: string } | { email: string } | { phoneNumber: string },
     token: string,
@@ -199,6 +252,16 @@ export async function getAccountInfo(
     };
 }
 
+/**
+ * Creates a Firebase session cookie from an ID token.
+ *
+ * @param idToken Firebase ID token.
+ * @param token Google OAuth access token with Identity Toolkit scope.
+ * @param project_id Firebase project ID.
+ * @param expiresIn_ms Session cookie TTL in milliseconds.
+ * @param tenantId Optional tenant ID.
+ * @param fetchFn Optional fetch implementation.
+ */
 export async function createSessionCookie(
     idToken: string,
     token: string,
@@ -235,6 +298,11 @@ export async function createSessionCookie(
     };
 }
 
+/**
+ * Fetches Secure Token Service JSON Web Keys (JWKs) used to verify Firebase ID tokens.
+ *
+ * @param fetchFn Optional fetch implementation.
+ */
 export async function getJWKs(fetchFn?: typeof globalThis.fetch) {
     const url =
         'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
@@ -253,6 +321,11 @@ export async function getJWKs(fetchFn?: typeof globalThis.fetch) {
     };
 }
 
+/**
+ * Fetches Firebase Auth public keys (legacy endpoint).
+ *
+ * @param fetchFn Optional fetch implementation.
+ */
 export async function getPublicKeys(fetchFn?: typeof globalThis.fetch) {
     const url =
         'https://www.googleapis.com/identitytoolkit/v3/relyingparty/publicKeys';
@@ -271,6 +344,11 @@ export async function getPublicKeys(fetchFn?: typeof globalThis.fetch) {
     };
 }
 
+/**
+ * Sends an out-of-band email action.
+ *
+ * Overloads support password reset and email verification.
+ */
 export async function sendOobCode(
     requestType: 'PASSWORD_RESET',
     key: string,
@@ -341,6 +419,16 @@ export async function sendOobCode(
     };
 }
 
+/**
+ * Completes email-link sign-in using an OOB code.
+ *
+ * @param oobCode Out-of-band code from the email link.
+ * @param email Email address used in the sign-in flow.
+ * @param key Firebase Web API key.
+ * @param idToken Optional existing ID token (for linking flows).
+ * @param tenantId Optional tenant ID.
+ * @param fetchFn Optional fetch implementation.
+ */
 export async function signInWithEmailLink(
     oobCode: string,
     email: string,
@@ -375,6 +463,17 @@ export async function signInWithEmailLink(
     };
 }
 
+/**
+ * Links an OAuth credential to an existing Firebase user.
+ *
+ * @param idToken Current user's Firebase ID token.
+ * @param providerIdToken The IdP token (GitHub access token or OIDC ID token).
+ * @param requestUri The origin/URL of the linking request.
+ * @param providerId Provider ID (e.g. "google.com", "github.com").
+ * @param key Firebase Web API key.
+ * @param tenantId Optional tenant ID.
+ * @param fetchFn Optional fetch implementation.
+ */
 export async function linkWithOAuthCredential(
     idToken: string,
     providerIdToken: string,
@@ -420,6 +519,15 @@ export async function linkWithOAuthCredential(
     };
 }
 
+/**
+ * Unlinks a provider from a Firebase user.
+ *
+ * @param idToken Current user's Firebase ID token.
+ * @param providerId Provider ID to remove.
+ * @param key Firebase Web API key.
+ * @param tenantId Optional tenant ID.
+ * @param fetchFn Optional fetch implementation.
+ */
 export async function unlinkProvider(
     idToken: string,
     providerId: string,
@@ -450,4 +558,72 @@ export async function unlinkProvider(
         data,
         error: error ? mapFirebaseError(error.error) : null
     };
+}
+
+/**
+ * Updates a user via the Identity Toolkit Admin API.
+ *
+ * @param projectId Firebase project ID.
+ * @param localId User UID.
+ * @param updates UpdateAccount request fields.
+ * @param googleOAuthAccessToken Google OAuth access token with Identity Toolkit scope.
+ * @param fetchFn Optional fetch implementation.
+ * @param tenantId Optional tenant ID.
+ */
+export async function updateAccountAdmin(
+    projectId: string,
+    localId: string,
+    updates: UpdateAccountRequest,
+    googleOAuthAccessToken: string,
+    fetchFn?: typeof globalThis.fetch,
+    tenantId?: string
+) {
+    const url = createAdminIdentityURL(projectId, 'update', true, tenantId);
+
+    const body = {
+        localId,
+        ...updates
+    };
+
+    const { data, error } = await restFetch<
+        FirebaseUpdateAccountResponse,
+        FirebaseRestError
+    >(url, {
+        global: { fetch: fetchFn },
+        body,
+        bearerToken: googleOAuthAccessToken
+    });
+
+    return {
+        data,
+        error: error ? mapFirebaseError(error.error) : null
+    };
+}
+
+/**
+ * Revokes refresh tokens for a user by setting `validSince` to now.
+ *
+ * @param projectId Firebase project ID.
+ * @param uid User UID.
+ * @param googleOAuthAccessToken Google OAuth access token with Identity Toolkit scope.
+ * @param fetchFn Optional fetch implementation.
+ * @param tenantId Optional tenant ID.
+ */
+export async function revokeRefreshTokens(
+    projectId: string,
+    uid: string,
+    googleOAuthAccessToken: string,
+    fetchFn?: typeof globalThis.fetch,
+    tenantId?: string
+) {
+    const nowSeconds = Math.floor(Date.now() / 1000).toString();
+
+    return updateAccountAdmin(
+        projectId,
+        uid,
+        { validSince: nowSeconds },
+        googleOAuthAccessToken,
+        fetchFn,
+        tenantId
+    );
 }

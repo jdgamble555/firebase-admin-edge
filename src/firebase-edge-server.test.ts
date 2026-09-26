@@ -321,6 +321,47 @@ describe('createFirebaseEdgeServer', () => {
     });
 
     describe('signInWithCallback', () => {
+        it('creates and saves a session using the admin options contract', async () => {
+            const { exchangeCodeForGoogleIdToken } = await import(
+                './auth/google-oauth.js'
+            );
+            vi.mocked(exchangeCodeForGoogleIdToken).mockResolvedValue({
+                data: {
+                    access_token: 'access',
+                    id_token: 'google-token',
+                    expires_in: 3600,
+                    scope: '',
+                    token_type: 'Bearer'
+                },
+                error: null
+            });
+            vi.mocked(server.auth.signInWithProvider).mockResolvedValue({
+                data: { idToken: 'firebase-token' },
+                error: null
+            });
+            vi.mocked(server.adminAuth.createSessionCookie).mockResolvedValue({
+                data: 'session-cookie',
+                error: null
+            });
+            const url = new URL('http://localhost/callback?code=auth-code');
+            url.searchParams.set(
+                'state',
+                JSON.stringify({ provider: 'google', next: '/dashboard' })
+            );
+            expect(await server.signInWithCallback(url, 3600000)).toEqual({
+                data: '/dashboard',
+                error: null
+            });
+            expect(server.adminAuth.createSessionCookie).toHaveBeenCalledWith(
+                'firebase-token',
+                { expiresIn: 3600000 }
+            );
+            expect(mockSaveSession).toHaveBeenCalledWith(
+                '__session',
+                'session-cookie',
+                expect.objectContaining({ httpOnly: true })
+            );
+        });
         it('returns error when no provider specified in state', async () => {
             const url = new URL('http://localhost/callback?code=auth-code');
             const result = await server.signInWithCallback(url);

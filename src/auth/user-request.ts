@@ -1,6 +1,71 @@
 import { FirebaseAdminAuthErrorInfo, FirebaseEdgeError } from './errors.js';
 import type { UpdateAccountRequest } from './firebase-types.js';
 
+/** Serialize stored claims; null clears them. Shared by updates and imports. */
+export function buildCustomClaimsRequest(
+    claims: object | null
+):
+    | { data: { customAttributes: string }; error: null }
+    | { data: null; error: FirebaseEdgeError } {
+    if (claims === null)
+        return { data: { customAttributes: '{}' }, error: null };
+    if (typeof claims !== 'object' || Array.isArray(claims)) {
+        return {
+            data: null,
+            error: new FirebaseEdgeError({
+                ...FirebaseAdminAuthErrorInfo.ADMIN_API_INVALID_ARGUMENT,
+                message: 'Claims must be an object or null.'
+            })
+        };
+    }
+    try {
+        const customAttributes = JSON.stringify(claims);
+        const serialized = JSON.parse(customAttributes);
+        if (
+            !serialized ||
+            typeof serialized !== 'object' ||
+            Array.isArray(serialized)
+        )
+            throw new Error('Claims must serialize to a JSON object.');
+        const reserved = [
+            'acr',
+            'amr',
+            'at_hash',
+            'aud',
+            'auth_time',
+            'azp',
+            'cnf',
+            'c_hash',
+            'exp',
+            'iat',
+            'iss',
+            'jti',
+            'nbf',
+            'nonce',
+            'sub',
+            'firebase'
+        ];
+        if (Object.keys(serialized).some((key) => reserved.includes(key)))
+            throw new Error('Claims contain a reserved claim.');
+        if (customAttributes.length > 1000)
+            throw new Error(
+                'Claims must not exceed 1000 characters when JSON-encoded.'
+            );
+        return { data: { customAttributes }, error: null };
+    } catch (cause) {
+        return {
+            data: null,
+            error: new FirebaseEdgeError({
+                ...FirebaseAdminAuthErrorInfo.ADMIN_API_INVALID_ARGUMENT,
+                message:
+                    cause instanceof Error
+                        ? cause.message
+                        : 'Invalid custom claims.'
+            })
+        };
+    }
+}
+
 export interface UidIdentifier {
     uid: string;
 }

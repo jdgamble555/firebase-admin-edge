@@ -14,6 +14,107 @@ import type { FirebaseEdgeError } from './errors.js';
 import { ensureError } from './errors.js';
 import type { ListUsersResponse } from './user-record.js';
 import type { UsersLookupRequest } from './user-request.js';
+import type { BatchUserError } from './user-batch.js';
+import type { PreparedUserImport } from './user-import.js';
+import type { EmailActionRequest } from './email-action-request.js';
+
+/** Generate an email action link without sending an email. */
+export async function generateEmailActionLink(
+    projectId: string,
+    body: EmailActionRequest,
+    token: string,
+    fetchFn?: typeof globalThis.fetch,
+    tenantId?: string
+) {
+    const { data, error } = await restFetch<
+        { oobLink: string },
+        FirebaseRestError
+    >(createAdminIdentityURL(projectId, 'sendOobCode', true, tenantId), {
+        body,
+        bearerToken: token,
+        global: { fetch: fetchFn }
+    });
+    if (error)
+        return {
+            data: null,
+            error:
+                typeof error === 'object' && error.error
+                    ? mapFirebaseError(error.error)
+                    : ensureError(error)
+        };
+    if (typeof data?.oobLink !== 'string' || !data.oobLink.length)
+        return {
+            data: null,
+            error: new Error('Firebase returned no email action link.')
+        };
+    return { data: data.oobLink, error: null };
+}
+
+/** Delete a validated batch, including enabled users. Missing users count as successes. */
+export async function deleteAccountsAdmin(
+    projectId: string,
+    uids: string[],
+    token: string,
+    fetchFn?: typeof globalThis.fetch,
+    tenantId?: string
+) {
+    const url = createAdminIdentityURL(
+        projectId,
+        'batchDelete',
+        true,
+        tenantId
+    );
+    const { data, error } = await restFetch<
+        { errors?: BatchUserError[] },
+        FirebaseRestError
+    >(url, {
+        body: { localIds: uids, force: true },
+        bearerToken: token,
+        global: { fetch: fetchFn }
+    });
+    if (error)
+        return {
+            data: null,
+            error:
+                typeof error === 'object' && error.error
+                    ? mapFirebaseError(error.error)
+                    : ensureError(error)
+        };
+    return { data, error: null };
+}
+
+/** Submit prepared import records and hash settings to the admin batch API. */
+export async function importAccountsAdmin(
+    projectId: string,
+    body: PreparedUserImport['body'],
+    token: string,
+    fetchFn?: typeof globalThis.fetch,
+    tenantId?: string
+) {
+    const url = createAdminIdentityURL(
+        projectId,
+        'batchCreate',
+        true,
+        tenantId
+    );
+    const { data, error } = await restFetch<
+        { error?: BatchUserError[] },
+        FirebaseRestError
+    >(url, {
+        body,
+        bearerToken: token,
+        global: { fetch: fetchFn }
+    });
+    if (error)
+        return {
+            data: null,
+            error:
+                typeof error === 'object' && error.error
+                    ? mapFirebaseError(error.error)
+                    : ensureError(error)
+        };
+    return { data, error: null };
+}
 
 /** Look up a validated batch, allowing successful responses with no matching users. */
 export async function getAccountsInfo(

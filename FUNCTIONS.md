@@ -32,26 +32,29 @@ The links below open their source so you can see the exact arguments.
 
 In [firebase-auth-endpoints.ts](src/auth/firebase-auth-endpoints.ts):
 
-| Function                  | What it does                                        |
-| ------------------------- | --------------------------------------------------- |
-| `refreshFirebaseIdToken`  | Gets a new Firebase ID token using a refresh token. |
-| `createAuthUri`           | Asks Firebase for a Google login URL.               |
-| `signInWithIdp`           | Signs in using a provider token.                    |
-| `signInWithCustomToken`   | Signs in using a custom token.                      |
-| `getAccountInfo`          | Finds a user by UID, email, or phone number.        |
-| `getAccountsInfo`         | Looks up a batch of user identifiers.               |
-| `downloadAccount`         | Retrieves one page of user accounts.                |
-| `createAccountAdmin`      | Creates a user with admin credentials.              |
-| `deleteAccountAdmin`      | Deletes one user with admin credentials.            |
-| `createSessionCookie`     | Exchanges a Firebase ID token for a session token.  |
-| `getJWKs`                 | Downloads public keys used to check ID tokens.      |
-| `getPublicKeys`           | Downloads public keys used to check session tokens. |
-| `sendOobCode`             | Sends a password reset or email verification email. |
-| `signInWithEmailLink`     | Signs in using the code from an email link.         |
-| `linkWithOAuthCredential` | Adds a provider to a user.                          |
-| `unlinkProvider`          | Removes a provider from a user.                     |
-| `updateAccountAdmin`      | Changes a user's account fields.                    |
-| `revokeRefreshTokens`     | Marks the user's old refresh tokens as revoked.     |
+| Function                  | What it does                                                |
+| ------------------------- | ----------------------------------------------------------- |
+| `refreshFirebaseIdToken`  | Gets a new Firebase ID token using a refresh token.         |
+| `createAuthUri`           | Asks Firebase for a Google login URL.                       |
+| `signInWithIdp`           | Signs in using a provider token.                            |
+| `signInWithCustomToken`   | Signs in using a custom token.                              |
+| `getAccountInfo`          | Finds a user by UID, email, or phone number.                |
+| `getAccountsInfo`         | Looks up a batch of user identifiers.                       |
+| `downloadAccount`         | Retrieves one page of user accounts.                        |
+| `createAccountAdmin`      | Creates a user with admin credentials.                      |
+| `deleteAccountAdmin`      | Deletes one user with admin credentials.                    |
+| `deleteAccountsAdmin`     | Deletes a batch of users with admin credentials.            |
+| `importAccountsAdmin`     | Submits imported records and password hash settings.        |
+| `createSessionCookie`     | Exchanges a Firebase ID token for a session token.          |
+| `getJWKs`                 | Downloads public keys used to check ID tokens.              |
+| `getPublicKeys`           | Downloads public keys used to check session tokens.         |
+| `generateEmailActionLink` | Generates an admin email action link without sending email. |
+| `sendOobCode`             | Sends a password reset or email verification email.         |
+| `signInWithEmailLink`     | Signs in using the code from an email link.                 |
+| `linkWithOAuthCredential` | Adds a provider to a user.                                  |
+| `unlinkProvider`          | Removes a provider from a user.                             |
+| `updateAccountAdmin`      | Changes a user's account fields.                            |
+| `revokeRefreshTokens`     | Marks the user's old refresh tokens as revoked.             |
 
 ### Token checks and signing
 
@@ -72,3 +75,12 @@ In [firebase-jwt.ts](src/auth/firebase-jwt.ts):
 | [`createGitHubOAuthLoginUrl`](src/auth/oauth.ts)           | Builds a GitHub login URL.                                                             |
 | [`exchangeCodeForGitHubIdToken`](src/auth/github-oauth.ts) | Exchanges a GitHub callback code for an **access token**, despite the function's name. |
 | [`restFetch`](src/rest-fetch.ts)                           | Sends an HTTP request and reads the response.                                          |
+
+### Email action request mapping
+
+`buildEmailActionRequest` in [email-action-request.ts](src/auth/email-action-request.ts)
+validates email addresses and action settings, and translates web and mobile
+settings into the admin API request. `generateEmailActionLink` sends that request
+with service account credentials. Both are internal; use the four
+[FirebaseAdminAuth email-link methods](FIREBASE_ADMIN_AUTH.md#email-action-links)
+for examples, including optional settings and required email sign-in settings.

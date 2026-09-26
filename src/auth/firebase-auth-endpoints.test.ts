@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+    generateEmailActionLink,
+    deleteAccountsAdmin,
+    importAccountsAdmin,
     getAccountsInfo,
     createAccountAdmin,
     updateAccountAdmin,
@@ -31,6 +34,228 @@ describe('firebase-auth-endpoints', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+    });
+
+    describe('generateEmailActionLink', () => {
+        const body = {
+            requestType: 'PASSWORD_RESET',
+            email: 'person@example.com',
+            returnOobLink: true,
+            continueUrl: 'https://example.com/login'
+        } as const;
+        it.each([undefined, 'tenant'])(
+            'requests a link without sending email for tenant %s',
+            async (tenant) => {
+                vi.mocked(restFetch.restFetch).mockResolvedValue({
+                    data: { oobLink: 'https://example.com/action' },
+                    error: null
+                });
+                expect(
+                    await generateEmailActionLink(
+                        PROJECT_ID,
+                        body,
+                        ACCESS_TOKEN,
+                        mockFetch,
+                        tenant
+                    )
+                ).toEqual({ data: 'https://example.com/action', error: null });
+                expect(restFetch.restFetch).toHaveBeenCalledWith(
+                    `https://identitytoolkit.googleapis.com/v1/projects/test-project${tenant ? '/tenants/tenant' : ''}/accounts:sendOobCode`,
+                    {
+                        body,
+                        bearerToken: ACCESS_TOKEN,
+                        global: { fetch: mockFetch }
+                    }
+                );
+            }
+        );
+        it('maps Firebase errors', async () => {
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: null,
+                error: { error: { code: 400, message: 'EMAIL_NOT_FOUND' } }
+            });
+            const result = await generateEmailActionLink(
+                PROJECT_ID,
+                body,
+                ACCESS_TOKEN
+            );
+            expect(result.data).toBeNull();
+            expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+        });
+        it('preserves ordinary transport errors', async () => {
+            const cause = new Error('network');
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: null,
+                error: cause
+            });
+            expect(
+                await generateEmailActionLink(PROJECT_ID, body, ACCESS_TOKEN)
+            ).toEqual({ data: null, error: cause });
+        });
+        it.each([null, {}, { oobLink: '' }, { oobLink: 123 }])(
+            'rejects an absent or invalid link %j',
+            async (data) => {
+                vi.mocked(restFetch.restFetch).mockResolvedValue({
+                    data,
+                    error: null
+                });
+                const result = await generateEmailActionLink(
+                    PROJECT_ID,
+                    body,
+                    ACCESS_TOKEN
+                );
+                expect(result.data).toBeNull();
+                expect(result.error).toBeInstanceOf(Error);
+            }
+        );
+    });
+
+    it('sends custom claims through the existing admin update endpoint', async () => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: { localId: 'uid' },
+            error: null
+        });
+        await updateAccountAdmin(
+            PROJECT_ID,
+            'uid',
+            { customAttributes: '{"role":"editor"}' },
+            ACCESS_TOKEN,
+            mockFetch,
+            'tenant'
+        );
+        expect(restFetch.restFetch).toHaveBeenCalledWith(
+            'https://identitytoolkit.googleapis.com/v1/projects/test-project/tenants/tenant/accounts:update',
+            {
+                body: { localId: 'uid', customAttributes: '{"role":"editor"}' },
+                bearerToken: ACCESS_TOKEN,
+                global: { fetch: mockFetch }
+            }
+        );
+    });
+
+    describe('bulk admin endpoints', () => {
+        it.each([undefined, 'tenant'])(
+            'posts a forced delete batch to tenant %s',
+            async (tenantId) => {
+                vi.mocked(restFetch.restFetch).mockResolvedValue({
+                    data: {},
+                    error: null
+                });
+                expect(
+                    await deleteAccountsAdmin(
+                        PROJECT_ID,
+                        ['one', 'two'],
+                        ACCESS_TOKEN,
+                        mockFetch,
+                        tenantId
+                    )
+                ).toEqual({ data: {}, error: null });
+                expect(restFetch.restFetch).toHaveBeenCalledWith(
+                    `https://identitytoolkit.googleapis.com/v1/projects/test-project${tenantId ? '/tenants/tenant' : ''}/accounts:batchDelete`,
+                    {
+                        body: { localIds: ['one', 'two'], force: true },
+                        bearerToken: ACCESS_TOKEN,
+                        global: { fetch: mockFetch }
+                    }
+                );
+            }
+        );
+        it.each([undefined, 'tenant'])(
+            'posts imported users and hash settings to tenant %s',
+            async (tenantId) => {
+                const body = {
+                    users: [{ localId: 'uid', passwordHash: 'AQ==' }],
+                    hashAlgorithm: 'BCRYPT'
+                };
+                const response = { error: [{ index: 0, message: 'failure' }] };
+                vi.mocked(restFetch.restFetch).mockResolvedValue({
+                    data: response,
+                    error: null
+                });
+                expect(
+                    await importAccountsAdmin(
+                        PROJECT_ID,
+                        body,
+                        ACCESS_TOKEN,
+                        mockFetch,
+                        tenantId
+                    )
+                ).toEqual({ data: response, error: null });
+                expect(restFetch.restFetch).toHaveBeenCalledWith(
+                    `https://identitytoolkit.googleapis.com/v1/projects/test-project${tenantId ? '/tenants/tenant' : ''}/accounts:batchCreate`,
+                    {
+                        body,
+                        bearerToken: ACCESS_TOKEN,
+                        global: { fetch: mockFetch }
+                    }
+                );
+            }
+        );
+        it('maps HTTP errors and preserves non-JSON failures', async () => {
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: null,
+                error: { error: { code: 403, message: 'PERMISSION_DENIED' } }
+            });
+            expect(
+                (await deleteAccountsAdmin(PROJECT_ID, ['uid'], ACCESS_TOKEN))
+                    .error
+            ).toMatchObject({
+                code: FirebaseEndpointErrorInfo.ENDPOINT_PERMISSION_DENIED.code
+            });
+            expect(
+                (
+                    await importAccountsAdmin(
+                        PROJECT_ID,
+                        { users: [] },
+                        ACCESS_TOKEN
+                    )
+                ).error
+            ).toMatchObject({
+                code: FirebaseEndpointErrorInfo.ENDPOINT_PERMISSION_DENIED.code
+            });
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: null,
+                error: 'Unavailable'
+            });
+            expect(
+                (await deleteAccountsAdmin(PROJECT_ID, ['uid'], ACCESS_TOKEN))
+                    .error?.message
+            ).toContain('Unavailable');
+            expect(
+                (
+                    await importAccountsAdmin(
+                        PROJECT_ID,
+                        { users: [] },
+                        ACCESS_TOKEN
+                    )
+                ).error?.message
+            ).toContain('Unavailable');
+        });
+        it('sends phone lookups as an array', async () => {
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: {
+                    users: [{ localId: 'uid', phoneNumber: '+15555550100' }]
+                },
+                error: null
+            });
+            const result = await getAccountInfo(
+                { phoneNumber: '+15555550100' },
+                ACCESS_TOKEN,
+                PROJECT_ID,
+                'tenant',
+                mockFetch
+            );
+            expect(result.data).toMatchObject({
+                localId: 'uid',
+                phoneNumber: '+15555550100'
+            });
+            expect(restFetch.restFetch).toHaveBeenCalledWith(
+                expect.stringContaining('/tenants/tenant/accounts:lookup'),
+                expect.objectContaining({
+                    body: { phoneNumber: ['+15555550100'], tenantId: 'tenant' }
+                })
+            );
+        });
     });
 
     describe('getAccountsInfo', () => {

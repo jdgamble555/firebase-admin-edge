@@ -564,7 +564,9 @@ export function createFirebaseEdgeServer({
         }
 
         const { data: sessionCookie, error: sessionError } =
-            await adminAuth.createSessionCookie(idToken, expiresIn_ms);
+            await adminAuth.createSessionCookie(idToken, {
+                expiresIn: expiresIn_ms
+            });
 
         if (sessionError) {
             return {
@@ -711,7 +713,9 @@ export function createFirebaseEdgeServer({
         }
 
         const { data: sessionCookie, error: sessionError } =
-            await adminAuth.createSessionCookie(idToken.idToken, expiresIn_ms);
+            await adminAuth.createSessionCookie(idToken.idToken, {
+                expiresIn: expiresIn_ms
+            });
 
         if (sessionError) {
             return {

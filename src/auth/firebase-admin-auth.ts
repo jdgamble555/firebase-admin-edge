@@ -1,4 +1,7 @@
 import {
+    generateEmailActionLink,
+    deleteAccountsAdmin,
+    importAccountsAdmin,
     createAccountAdmin,
     updateAccountAdmin,
     deleteAccountAdmin,
@@ -22,6 +25,29 @@ import {
 } from './errors.js';
 import type { CacheConfig } from './cache-types.js';
 import {
+    validateDeleteUsers,
+    createBatchUserResult,
+    type DeleteUsersResult,
+    type UserImportResult
+} from './user-batch.js';
+import {
+    prepareUserImport,
+    type UserImportRecord,
+    type UserImportOptions
+} from './user-import.js';
+export type {
+    DeleteUsersResult,
+    UserImportResult,
+    FirebaseArrayIndexError
+} from './user-batch.js';
+export type {
+    UserImportRecord,
+    UserImportOptions,
+    HashAlgorithmType,
+    UserMetadataRequest,
+    UserProviderRequest
+} from './user-import.js';
+import {
     createUserRecord,
     createGetUsersResult,
     type GetUsersResult,
@@ -30,6 +56,7 @@ import {
 import type { UserRecord } from './user-record.js';
 import {
     buildUserRequest,
+    buildCustomClaimsRequest,
     buildUsersLookupRequest,
     type UserIdentifier,
     validateUserUid,
@@ -57,6 +84,17 @@ export type {
 type AdminResult<T> =
     | { data: T; error: null }
     | { data: null; error: FirebaseEdgeError };
+
+import {
+    buildEmailActionRequest,
+    type ActionCodeSettings,
+    type EmailActionType
+} from './email-action-request.js';
+export type { ActionCodeSettings } from './email-action-request.js';
+export interface SessionCookieOptions {
+    /** Session lifetime in milliseconds, between five minutes and fourteen days. */
+    expiresIn: number;
+}
 
 /**
  * Firebase Admin Authentication handler for edge environments.
@@ -236,6 +274,60 @@ export class FirebaseAdminAuth {
         }
     }
 
+    /** Replace stored custom claims; pass null to clear all claims. */
+    async setCustomUserClaims(
+        uid: string,
+        claims: object | null
+    ): Promise<AdminResult<void>> {
+        const uidError = validateUserUid(uid);
+        if (uidError) return { data: null, error: uidError };
+        const request = buildCustomClaimsRequest(claims);
+        if (request.error) return { data: null, error: request.error };
+        try {
+            const { data: token, error } = await this.getCachedToken();
+            if (error) return { data: null, error };
+            if (!token?.access_token)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            const result = await updateAccountAdmin(
+                this.serviceAccountKey.project_id,
+                uid,
+                request.data,
+                token.access_token,
+                this.fetch,
+                this.tenantId
+            );
+            if (result.error)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_SET_CUSTOM_CLAIMS_FAILED,
+                        { cause: result.error }
+                    )
+                };
+            if (!result.data?.localId)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_SET_CUSTOM_CLAIMS_FAILED
+                    )
+                };
+            return { data: undefined, error: null };
+        } catch (cause) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_SET_CUSTOM_CLAIMS_FAILED,
+                    { cause: ensureError(cause) }
+                )
+            };
+        }
+    }
+
     /** Delete one user. A successful deletion returns undefined data. */
     async deleteUser(uid: string): Promise<AdminResult<void>> {
         const uidError = validateUserUid(uid);
@@ -271,6 +363,127 @@ export class FirebaseAdminAuth {
                 data: null,
                 error: new FirebaseEdgeError(
                     FirebaseAdminAuthErrorInfo.ADMIN_DELETE_USER_FAILED,
+                    { cause: ensureError(cause) }
+                )
+            };
+        }
+    }
+
+    /** Delete up to 1000 users, reporting failures by original input index. */
+    async deleteUsers(uids: string[]): Promise<AdminResult<DeleteUsersResult>> {
+        const validationError = validateDeleteUsers(uids);
+        if (validationError) return { data: null, error: validationError };
+        if (uids.length === 0)
+            return { data: createBatchUserResult([]), error: null };
+        try {
+            const { data: token, error } = await this.getCachedToken();
+            if (error) return { data: null, error };
+            if (!token?.access_token)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            const result = await deleteAccountsAdmin(
+                this.serviceAccountKey.project_id,
+                uids,
+                token.access_token,
+                this.fetch,
+                this.tenantId
+            );
+            if (result.error)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_DELETE_USER_FAILED,
+                        { cause: result.error }
+                    )
+                };
+            if (!result.data || typeof result.data !== 'object')
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_DELETE_USER_FAILED
+                    )
+                };
+            return {
+                data: createBatchUserResult(
+                    uids.map((_, index) => index),
+                    result.data.errors
+                ),
+                error: null
+            };
+        } catch (cause) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_DELETE_USER_FAILED,
+                    { cause: ensureError(cause) }
+                )
+            };
+        }
+    }
+
+    /** Import up to 1000 users, with local and API failures indexed to the original input. */
+    async importUsers(
+        users: UserImportRecord[],
+        options?: UserImportOptions
+    ): Promise<AdminResult<UserImportResult>> {
+        const prepared = prepareUserImport(users, options, this.tenantId);
+        if (prepared.error) return { data: null, error: prepared.error };
+        const { body, indices, errors } = prepared.data;
+        if (indices.length === 0)
+            return {
+                data: createBatchUserResult([], [], errors, 'import'),
+                error: null
+            };
+        try {
+            const { data: token, error } = await this.getCachedToken();
+            if (error) return { data: null, error };
+            if (!token?.access_token)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            const result = await importAccountsAdmin(
+                this.serviceAccountKey.project_id,
+                body,
+                token.access_token,
+                this.fetch,
+                this.tenantId
+            );
+            if (result.error)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_IMPORT_USERS_FAILED,
+                        { cause: result.error }
+                    )
+                };
+            if (!result.data || typeof result.data !== 'object')
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_IMPORT_USERS_FAILED
+                    )
+                };
+            return {
+                data: createBatchUserResult(
+                    indices,
+                    result.data.error,
+                    errors,
+                    'import'
+                ),
+                error: null
+            };
+        } catch (cause) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_IMPORT_USERS_FAILED,
                     { cause: ensureError(cause) }
                 )
             };
@@ -528,6 +741,73 @@ export class FirebaseAdminAuth {
         };
     }
 
+    /** Look up a linked provider UID, or a primary email/phone identifier. */
+    async getUserByProviderUid(
+        providerId: string,
+        uid: string
+    ): Promise<AdminResult<UserRecord>> {
+        const identifier: UserIdentifier =
+            providerId === 'email'
+                ? { email: uid }
+                : providerId === 'phone'
+                  ? { phoneNumber: uid }
+                  : { providerId, providerUid: uid };
+        const result = await this.getUsers([identifier]);
+        if (result.error) return { data: null, error: result.error };
+        const user = result.data.users[0];
+        if (!user)
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_USER_NOT_FOUND
+                )
+            };
+        return { data: user, error: null };
+    }
+
+    /** Look up a user by their primary international phone number. */
+    async getUserByPhoneNumber(
+        phoneNumber: string
+    ): Promise<AdminResult<UserRecord>> {
+        const validation = buildUsersLookupRequest([{ phoneNumber }]);
+        if (validation.error) return { data: null, error: validation.error };
+        try {
+            const { data: token, error } = await this.getCachedToken();
+            if (error) return { data: null, error };
+            if (!token?.access_token)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            const result = await getAccountInfo(
+                { phoneNumber },
+                token.access_token,
+                this.serviceAccountKey.project_id,
+                this.tenantId,
+                this.fetch
+            );
+            if (result.error) return { data: null, error: result.error };
+            if (!result.data)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_USER_NOT_FOUND
+                    )
+                };
+            return { data: createUserRecord(result.data), error: null };
+        } catch (cause) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_USER_LOOKUP_FAILED,
+                    { cause: ensureError(cause) }
+                )
+            };
+        }
+    }
+
     /**
      * Verifies a Firebase ID token and returns the decoded payload.
      * Optionally checks if the token has been revoked.
@@ -644,46 +924,189 @@ export class FirebaseAdminAuth {
      * Creates a session cookie from a Firebase ID token.
      *
      * @param idToken Firebase ID token to convert to session cookie
-     * @param expiresIn_ms Session cookie expiration time in milliseconds
+     * @param options Session cookie lifetime in milliseconds
      * @returns Promise with object containing session cookie string or null, and error if any
      */
-    async createSessionCookie(idToken: string, expiresIn_ms: number) {
-        const { data: token, error: getTokenError } =
-            await this.getCachedToken();
-
-        if (getTokenError) {
+    async createSessionCookie(
+        idToken: string,
+        options: SessionCookieOptions
+    ): Promise<AdminResult<string>> {
+        if (typeof idToken !== 'string' || !idToken.length)
             return {
                 data: null,
                 error: new FirebaseEdgeError(
-                    FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED,
-                    { cause: getTokenError }
+                    FirebaseAdminAuthErrorInfo.ADMIN_ID_TOKEN_INVALID
                 )
             };
-        }
+        if (
+            !options ||
+            typeof options !== 'object' ||
+            !Number.isFinite(options.expiresIn) ||
+            options.expiresIn < 300000 ||
+            options.expiresIn > 1209600000
+        )
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_SESSION_COOKIE_DURATION_INVALID
+                )
+            };
+        try {
+            const { data: token, error: getTokenError } =
+                await this.getCachedToken();
 
-        const { data, error } = await createSessionCookie(
-            idToken,
-            token.access_token,
-            this.serviceAccountKey.project_id,
-            expiresIn_ms,
-            this.tenantId,
-            this.fetch
-        );
+            if (getTokenError) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED,
+                        { cause: getTokenError }
+                    )
+                };
+            }
 
-        if (error) {
+            if (!token?.access_token)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            const { data, error } = await createSessionCookie(
+                idToken,
+                token.access_token,
+                this.serviceAccountKey.project_id,
+                options.expiresIn,
+                this.tenantId,
+                this.fetch
+            );
+
+            if (error || !data) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_SESSION_COOKIE_CREATE_FAILED,
+                        {
+                            cause: ensureError(
+                                error ??
+                                    new Error(
+                                        'Firebase returned no session cookie.'
+                                    )
+                            )
+                        }
+                    )
+                };
+            }
+
+            return {
+                data,
+                error: null
+            };
+        } catch (cause) {
             return {
                 data: null,
                 error: new FirebaseEdgeError(
                     FirebaseAdminAuthErrorInfo.ADMIN_SESSION_COOKIE_CREATE_FAILED,
-                    { cause: ensureError(error) }
+                    { cause: ensureError(cause) }
                 )
             };
         }
+    }
 
-        return {
-            data,
-            error: null
-        };
+    /** Generate a password reset link to send through your own email service. */
+    async generatePasswordResetLink(
+        email: string,
+        settings?: ActionCodeSettings
+    ): Promise<AdminResult<string>> {
+        return this.generateActionLink('PASSWORD_RESET', email, settings);
+    }
+
+    /** Generate an email verification link without sending an email. */
+    async generateEmailVerificationLink(
+        email: string,
+        settings?: ActionCodeSettings
+    ): Promise<AdminResult<string>> {
+        return this.generateActionLink('VERIFY_EMAIL', email, settings);
+    }
+
+    /** Generate a link that verifies a new email before changing the account email. */
+    async generateVerifyAndChangeEmailLink(
+        email: string,
+        newEmail: string,
+        settings?: ActionCodeSettings
+    ): Promise<AdminResult<string>> {
+        return this.generateActionLink(
+            'VERIFY_AND_CHANGE_EMAIL',
+            email,
+            settings,
+            newEmail
+        );
+    }
+
+    /** Generate an email sign-in link; action code settings are required. */
+    async generateSignInWithEmailLink(
+        email: string,
+        settings: ActionCodeSettings
+    ): Promise<AdminResult<string>> {
+        return this.generateActionLink('EMAIL_SIGNIN', email, settings);
+    }
+
+    private async generateActionLink(
+        requestType: EmailActionType,
+        email: string,
+        settings?: ActionCodeSettings,
+        newEmail?: string
+    ): Promise<AdminResult<string>> {
+        const request = buildEmailActionRequest(
+            requestType,
+            email,
+            settings,
+            newEmail
+        );
+        if (request.error) return request;
+        try {
+            const { data: token, error: tokenError } =
+                await this.getCachedToken();
+            if (tokenError)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED,
+                        { cause: ensureError(tokenError) }
+                    )
+                };
+            if (!token?.access_token)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            const { data, error } = await generateEmailActionLink(
+                this.serviceAccountKey.project_id,
+                request.data,
+                token.access_token,
+                this.fetch,
+                this.tenantId
+            );
+            if (error)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_EMAIL_ACTION_LINK_FAILED,
+                        { cause: ensureError(error) }
+                    )
+                };
+            return { data, error: null };
+        } catch (cause) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_EMAIL_ACTION_LINK_FAILED,
+                    { cause: ensureError(cause) }
+                )
+            };
+        }
     }
 
     /**
@@ -769,6 +1192,21 @@ export class FirebaseAdminAuth {
                 )
             };
         }
+
+        if (user.disabled)
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_USER_DISABLED
+                )
+            };
+        if (user.validSince && data.auth_time < Number(user.validSince))
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_SESSION_COOKIE_REVOKED
+                )
+            };
 
         return {
             data,

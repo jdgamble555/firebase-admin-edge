@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    buildCustomClaimsRequest,
     buildUsersLookupRequest,
     type UserIdentifier,
     buildUserRequest,
@@ -7,6 +8,78 @@ import {
     type CreateRequest,
     type UpdateRequest
 } from './user-request.js';
+
+describe('buildCustomClaimsRequest', () => {
+    it('serializes nested claims without mutation', () => {
+        const claims = {
+            admin: true,
+            roles: ['editor'],
+            settings: { enabled: false }
+        };
+        const snapshot = structuredClone(claims);
+        expect(buildCustomClaimsRequest(claims)).toEqual({
+            data: { customAttributes: JSON.stringify(claims) },
+            error: null
+        });
+        expect(claims).toEqual(snapshot);
+    });
+    it.each([null, {}])('clears claims with %j', (claims) => {
+        expect(buildCustomClaimsRequest(claims)).toEqual({
+            data: { customAttributes: '{}' },
+            error: null
+        });
+    });
+    it('accepts exactly 1000 JSON characters and rejects 1001', () => {
+        expect(
+            buildCustomClaimsRequest({ x: 'a'.repeat(992) }).error
+        ).toBeNull();
+        expect(
+            buildCustomClaimsRequest({ x: 'a'.repeat(993) }).error
+        ).not.toBeNull();
+    });
+    it.each([
+        'acr',
+        'amr',
+        'at_hash',
+        'aud',
+        'auth_time',
+        'azp',
+        'cnf',
+        'c_hash',
+        'exp',
+        'iat',
+        'iss',
+        'jti',
+        'nbf',
+        'nonce',
+        'sub',
+        'firebase'
+    ])('rejects reserved claim %s', (key) => {
+        expect(
+            buildCustomClaimsRequest({ [key]: 'value' }).error
+        ).not.toBeNull();
+    });
+    it.each([undefined, [], 'invalid', 1, true, { value: BigInt(1) }])(
+        'rejects invalid claims %s',
+        (claims) => {
+            const result = buildCustomClaimsRequest(claims as object);
+            expect(result.data).toBeNull();
+            expect(result.error?.code).toBe('auth/admin-api-invalid-argument');
+        }
+    );
+    it('handles cyclic values and validates the serialized object', () => {
+        const claims: Record<string, unknown> = {};
+        claims.self = claims;
+        expect(buildCustomClaimsRequest(claims).error).not.toBeNull();
+        expect(
+            buildCustomClaimsRequest({ toJSON: () => ({ sub: 'reserved' }) })
+                .error
+        ).not.toBeNull();
+        expect(
+            buildCustomClaimsRequest({ toJSON: () => null }).error
+        ).not.toBeNull();
+    });
+});
 
 describe('buildUsersLookupRequest', () => {
     it('groups all four identifier types without mutating them', () => {

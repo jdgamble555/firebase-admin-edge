@@ -1,4 +1,12 @@
 export const FirebaseAdminAuthErrorInfo = {
+    ADMIN_SET_CUSTOM_CLAIMS_FAILED: {
+        message: 'Failed to set custom claims for the Firebase Auth user.',
+        code: 'auth/admin-set-custom-claims-failed'
+    },
+    ADMIN_IMPORT_USERS_FAILED: {
+        message: 'Failed to import Firebase Auth users.',
+        code: 'auth/admin-import-users-failed'
+    },
     ADMIN_CREATE_USER_FAILED: {
         message: 'Failed to create a Firebase Auth user.',
         code: 'auth/admin-create-user-failed'
@@ -85,6 +93,10 @@ export const FirebaseAdminAuthErrorInfo = {
     },
 
     // Session Cookie Management
+    ADMIN_EMAIL_ACTION_LINK_FAILED: {
+        message: 'Failed to generate an email action link.',
+        code: 'auth/admin-email-action-link-failed'
+    },
     ADMIN_SESSION_COOKIE_CREATE_FAILED: {
         message: 'Failed to create Firebase session cookie using admin SDK.',
         code: 'auth/admin-session-cookie-create-failed'

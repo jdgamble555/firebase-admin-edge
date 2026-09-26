@@ -1,5 +1,12 @@
 # firebase-admin-edge
 
+## 1.0.25
+
+### Patch Changes
+
+- f77c66a: add provider linking
+- 03c1f88: readme
+
 ## 1.0.24
 
 ### Patch Changes

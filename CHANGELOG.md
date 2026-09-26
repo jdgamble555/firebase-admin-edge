@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.1.1
+
+### Patch Changes
+
+- 2e35a13: More Methods
+
 ## 1.1.0
 
 ### Minor Changes

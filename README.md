@@ -1,8 +1,8 @@
 # Firebase Admin Edge
 
 Lightweight helpers to use Firebase Admin features in edge runtimes and serverless
-environments. Built on top of the Firebase REST APIs; no long-running server
-processes or additional runtime dependencies required.
+environments. Built on top of the Firebase REST APIs, with `jose` for token signing
+and verification.
 
 Supported runtimes:
 
@@ -12,36 +12,40 @@ Supported runtimes:
 - Bun
 - Node.js
 
+## Contents
+
+- [Setup](#setup)
+- [Sign in](#sign-in)
+- [Users and sessions](#users-and-sessions)
+- [Link and unlink accounts](#link-and-unlink-accounts)
+- [All server methods](#all-server-methods)
+- [Firebase Auth helpers](#firebase-auth-helpers)
+- [Features](#features)
+- [Planned work](#planned-work)
+
 ## Installation
 
 ```bash
 npm i firebase-admin-edge
 ```
 
-## Quick Start
+## Setup
 
-### Basic setup
+For user lookups, token checks, and sessions, see the
+[Firebase Auth Helpers guide](FIREBASE_AUTH_HELPERS.md).
 
 ```typescript
-import { createFirebaseEdgeServer, TokenCache } from 'firebase-admin-edge';
+import { createFirebaseEdgeServer } from 'firebase-admin-edge';
 import { getCookie, setCookie } from 'your-framework-library';
 
-// Optional: Create a cache for service account tokens (recommended for performance)
-const cache = new TokenCache();
-
-// Create the edge server once during initialization. Keep secrets out of
-// source control — load the `serviceAccount` and client secrets from
-// environment variables or a secret manager.
-export const firebaseServer = createFirebaseEdgeServer({
-    serviceAccount: {
-        type: 'service_account',
-        project_id: 'your-project-id',
-        private_key_id: 'your-private-key-id'
-        ...
-    },
+// Load serviceAccount and client secrets from your server's secrets.
+// Cookie helpers must read and write cookies for the current request.
+const firebaseServer = createFirebaseEdgeServer({
+    serviceAccount,
     firebaseConfig: {
         apiKey: 'your-web-api-key',
-        authDomain: 'your-project.firebaseapp.com'
+        authDomain: 'your-project.firebaseapp.com',
+        projectId: 'your-project-id'
     },
     providers: {
         google: {
@@ -57,11 +61,6 @@ export const firebaseServer = createFirebaseEdgeServer({
         // Provide your framework's cookie helpers
         getSession: (name) => getCookie(name),
         saveSession: (name, value, options) => setCookie(name, value, options)
-    },
-    // Optional: Token caching for improved performance (tokens cached for 1 hour)
-    cache: {
-        getCache: (name) => cache.get(name),
-        setCache: (name, value, ttl) => cache.set(name, value, ttl)
     },
     // Optional: Custom session cookie name (defaults to '__session')
     cookieName: '__session',
@@ -82,20 +81,24 @@ export const firebaseServer = createFirebaseEdgeServer({
 });
 ```
 
-**Get User**
+Replace the cookie helpers and redirects in these examples with your framework's
+functions. Enable the providers you use in Firebase and register your callback URL
+with Google or GitHub.
 
-```ts
-const { data: user } = await firebaseServer.getUser();
-```
+Optional settings:
 
-**Login with code (callback)**
+| Setting              | Purpose                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| `cookieName`         | Session cookie name. Defaults to `__session`.                                                   |
+| `cookieOptions`      | Cookie settings. Defaults to secure, HTTP-only, `sameSite: 'lax'`, path `/`, and five days.     |
+| `tenantId`           | Select a Firebase Auth tenant.                                                                  |
+| `autoLinkProviders`  | Try to link accounts with the same email. Defaults to off.                                      |
+| `fetch`              | Supply your own HTTP request function.                                                          |
+| `cache`, `cacheName` | Supply token cache callbacks and a cache key. See the [helper guide](FIREBASE_AUTH_HELPERS.md). |
 
-```ts
-// Pass the request URL (the server extracts code and state from query params)
-const { error } = await firebaseServer.signInWithCallback(request.url);
-```
+## Sign in
 
-**Create Login URL**
+### 1. Send the user to Google or GitHub
 
 ```ts
 // Create an OAuth login URL for the `next` state.
@@ -110,16 +113,74 @@ const loginUrlGithub = await firebaseServer.getGitHubLoginURL(next);
 redirect(302, loginUrlGoogle);
 ```
 
-**Logout**
+These login methods clear the current session. Both accept an optional second
+argument with `customParameters` and `addScopes`. Google also accepts
+`languageCode`.
+
+### 2. Handle the callback
+
+The callback completes sign-in, saves the session cookie, and returns the path to
+send the user back to.
 
 ```ts
-await firebaseServer.signOut();
+const { data: returnTo, error } = await firebaseServer.signInWithCallback(
+    new URL(request.url)
+);
 
-// Your framework redirect method
+if (error) {
+    throw error;
+}
+
+redirect(302, returnTo || '/');
+```
+
+## Users and sessions
+
+### Get the signed-in user
+
+```ts
+const { data: user, error } = await firebaseServer.getUser();
+
+if (error) {
+    throw error;
+}
+
+// user is null when there is no session. user.sub is the Firebase user ID.
+```
+
+This returns the details inside the session token. To look up the full user
+record, use `firebaseServer.adminAuth.getUser(uid)`.
+
+### Get Firebase tokens
+
+Use this when you need a Firebase ID token and refresh token for the current user.
+
+```ts
+const { data: tokens, error } = await firebaseServer.getToken();
+
+if (error) {
+    throw error;
+}
+
+// tokens is null when there is no session.
+// Otherwise, it contains idToken, refreshToken, and expiresIn.
+```
+
+### Sign out
+
+```ts
+firebaseServer.signOut();
 redirect(302, '/');
 ```
 
-**Link Provider**
+This clears the session cookie. It does not revoke existing Firebase client tokens.
+
+## Link and unlink accounts
+
+### Link through Google or GitHub
+
+Start this flow while the user is signed in. Use the same callback handler shown
+in [Sign in](#2-handle-the-callback).
 
 ```ts
 // 1) Start link: redirect to provider
@@ -127,23 +188,86 @@ const next = '/dashboard';
 const linkURL = await firebaseServer.getGoogleLinkURL(next);
 // or: linkURL = await firebaseServer.getGitHubLinkURL(next);
 redirect(302, linkURL);
-
-// 2) Callback: same handler as normal login
-const { data: returnTo, error } = await firebaseServer.signInWithCallback(url);
-
-redirect(302, returnTo);
 ```
 
-**Unlink Provider**
+### Link with a provider token
+
+If you already have a provider token, pass it directly. Use a Google ID token with
+`google.com`, or a GitHub access token with `github.com`.
+
+```ts
+const { data, error } = await firebaseServer.linkProvider(
+    githubAccessToken,
+    'github.com'
+);
+
+if (error) {
+    throw error;
+}
+```
+
+### Unlink a provider
 
 ```ts
 const { error } = await firebaseServer.unlinkProvider('google.com');
+
+if (error) {
+    throw error;
+}
 ```
+
+## All server methods
+
+These are all ten methods returned by `createFirebaseEdgeServer()`.
+
+| Method                                     | What it does                                        |
+| ------------------------------------------ | --------------------------------------------------- |
+| `getGoogleLoginURL(next, options?)`        | Builds a Google login URL.                          |
+| `getGitHubLoginURL(next, options?)`        | Builds a GitHub login URL.                          |
+| `signInWithCallback(url, expiresInMs?)`    | Completes login or linking and saves the session.   |
+| `getUser(checkRevoked?)`                   | Reads and checks the current session.               |
+| `getToken()`                               | Creates Firebase login tokens for the current user. |
+| `signOut()`                                | Clears the session cookie.                          |
+| `getGoogleLinkURL(next, options?)`         | Builds a Google account linking URL.                |
+| `getGitHubLinkURL(next, options?)`         | Builds a GitHub account linking URL.                |
+| `linkProvider(providerToken, providerId)`  | Links a provider using its token.                   |
+| `unlinkProvider(providerId, expiresInMs?)` | Removes a provider and replaces the session cookie. |
+
+URL methods return a string and can throw errors. `signOut()` returns nothing.
+The other methods return a result with `data` and/or `error`; check `error` first.
+Session durations are in milliseconds and default to five days.
+
+In the current implementation, `getUser(true)` also looks up the user, but does
+not check disabled status or revocation time. See the
+[session verification details](FIREBASE_AUTH_HELPERS.md#firebaseadminauth-server-tasks).
+
+## Firebase Auth helpers
+
+The server also exposes two helper objects:
+
+| Object                     | Use it for                                                                                      |
+| -------------------------- | ----------------------------------------------------------------------------------------------- |
+| `firebaseServer.auth`      | Sign in with tokens and link or unlink providers using a Firebase ID token.                     |
+| `firebaseServer.adminAuth` | Look up users, verify tokens, create sessions, create custom tokens, and revoke refresh tokens. |
+
+```ts
+const { data: user, error } = await firebaseServer.adminAuth.getUserByEmail(
+    'someone@example.com'
+);
+
+if (error) {
+    throw error;
+}
+```
+
+You can also import `FirebaseAuth`, `FirebaseAdminAuth`, and `TokenCache` directly.
+See [Firebase Auth Helpers](FIREBASE_AUTH_HELPERS.md) for simple examples and the
+full helper list.
 
 ## Features
 
 - ✅ **Edge Runtime Compatible** - Works in Vercel Edge, Cloudflare Workers, Deno, and Bun
-- ✅ **Zero Dependencies** - Uses only fetch API and jose
+- ✅ **Lightweight** - Uses the fetch API and jose
 - ✅ **TypeScript Support** - Full type safety and IntelliSense
 - ✅ **Session Management** - Secure HTTP-only cookies
 - ✅ **OAuth Support** - Google and GitHub OAuth 2.0 flows
@@ -153,7 +277,12 @@ const { error } = await firebaseServer.unlinkProvider('google.com');
 - ✅ **Flexible Configuration** - Customizable cookie options and cache implementations
 - ✅ **Link and Unlink Providers** - Link and unlink oauth providers
 
-## Firebase Auth Todo
+## Planned work
+
+Some tasks below already have individual helpers. This list also tracks work to
+connect those helpers to the main server API.
+
+### Firebase Auth
 
 - ☐ Magic Link Login (auto save email option)
 - ☐ Email / Password / Annonymous Login
@@ -171,7 +300,7 @@ const { error } = await firebaseServer.unlinkProvider('google.com');
 - ☐ Ban Users
 - ☐ RBAC
 
-## Firestore Todo
+### Firestore
 
 - ☐ Get Document By ID
 - ☐ Create Document
@@ -179,7 +308,7 @@ const { error } = await firebaseServer.unlinkProvider('google.com');
 - ☐ Delete Document
 - ☐ Query Documents
 
-## Firebase Storage
+### Firebase Storage
 
 - ☐ Create File
 - ☐ Delete File

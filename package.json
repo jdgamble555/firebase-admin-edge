@@ -1,10 +1,12 @@
 {
     "name": "firebase-admin-edge",
     "version": "1.0.24",
-    "description": "A demo package for Total TypeScript",
+    "description": "An edge friendly firebase package written in TypeScript. Deploy Firebase to Cloudflare!",
     "keywords": [
-        "demo",
-        "typescript"
+        "firebase",
+        "typescript",
+        "authentication",
+        "cloudflare"
     ],
     "homepage": "https://github.com/jdgamble555/firebase-admin-edge",
     "bugs": {

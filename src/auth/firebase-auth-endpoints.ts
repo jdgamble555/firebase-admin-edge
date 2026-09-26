@@ -11,6 +11,37 @@ import { restFetch } from '../rest-fetch.js';
 import type { JsonWebKey } from 'crypto';
 import { mapFirebaseError } from './auth-endpoint-errors.js';
 import type { FirebaseEdgeError } from './errors.js';
+import { ensureError } from './errors.js';
+import type { ListUsersResponse } from './user-record.js';
+import type { UsersLookupRequest } from './user-request.js';
+
+/** Look up a validated batch, allowing successful responses with no matching users. */
+export async function getAccountsInfo(
+    identifiers: UsersLookupRequest,
+    token: string,
+    projectId: string,
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+) {
+    const url = createAdminIdentityURL(projectId, 'lookup', true, tenantId);
+    const { data, error } = await restFetch<
+        ListUsersResponse,
+        FirebaseRestError
+    >(url, {
+        body: identifiers,
+        bearerToken: token,
+        global: { fetch: fetchFn }
+    });
+    if (error)
+        return {
+            data: null,
+            error:
+                typeof error === 'object' && error.error
+                    ? mapFirebaseError(error.error)
+                    : ensureError(error)
+        };
+    return { data, error: null };
+}
 
 // Functions
 
@@ -25,11 +56,12 @@ function createAdminIdentityURL(
     accounts = true,
     tenantId?: string
 ) {
+    const action = name ? `:${name}` : '';
     if (tenantId) {
         // Use Identity Platform API for tenant-specific operations
-        return `https://identitytoolkit.googleapis.com/v1/projects/${project_id}/tenants/${tenantId}${accounts ? '/accounts' : ''}:${name}`;
+        return `https://identitytoolkit.googleapis.com/v1/projects/${project_id}/tenants/${tenantId}${accounts ? '/accounts' : ''}${action}`;
     }
-    return `https://identitytoolkit.googleapis.com/v1/projects/${project_id}${accounts ? '/accounts' : ''}:${name}`;
+    return `https://identitytoolkit.googleapis.com/v1/projects/${project_id}${accounts ? '/accounts' : ''}${action}`;
 }
 
 /**
@@ -227,7 +259,7 @@ export async function getAccountInfo(
     const url = createAdminIdentityURL(project_id, 'lookup', true, tenantId);
 
     const body: Record<string, any> = {
-        ...('uid' in identifier && { localId: identifier.uid }),
+        ...('uid' in identifier && { localId: [identifier.uid] }),
         ...('email' in identifier && { email: [identifier.email] }),
         ...('phoneNumber' in identifier && {
             phoneNumber: [identifier.phoneNumber]
@@ -244,12 +276,57 @@ export async function getAccountInfo(
         bearerToken: token
     });
 
-    const userData = data?.users.length ? data.users[0] : null;
+    const userData = data?.users?.length ? data.users[0] : null;
 
     return {
         data: userData,
         error: error ? mapFirebaseError(error.error) : null
     };
+}
+
+/**
+ * Downloads one page of user accounts for FirebaseAdminAuth.listUsers.
+ * @param token Google OAuth access token.
+ * @param project_id Firebase project ID.
+ * @param maxResults Page size, already validated by the admin auth method.
+ * @param pageToken Optional token from the previous page.
+ * @param tenantId Optional tenant ID.
+ * @param fetchFn Optional fetch implementation.
+ * @internal
+ */
+export async function downloadAccount(
+    token: string,
+    project_id: string,
+    maxResults = 1000,
+    pageToken?: string,
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+) {
+    const url = createAdminIdentityURL(project_id, 'batchGet', true, tenantId);
+    const { data, error } = await restFetch<
+        ListUsersResponse,
+        FirebaseRestError
+    >(url, {
+        method: 'GET',
+        bearerToken: token,
+        global: { fetch: fetchFn },
+        params: {
+            maxResults: String(maxResults),
+            ...(pageToken !== undefined && { nextPageToken: pageToken })
+        }
+    });
+
+    if (error) {
+        return {
+            data: null,
+            error:
+                typeof error === 'object' && error.error
+                    ? mapFirebaseError(error.error)
+                    : ensureError(error)
+        };
+    }
+
+    return { data, error: null };
 }
 
 /**
@@ -594,10 +671,67 @@ export async function updateAccountAdmin(
         bearerToken: googleOAuthAccessToken
     });
 
-    return {
-        data,
-        error: error ? mapFirebaseError(error.error) : null
-    };
+    if (error)
+        return {
+            data: null,
+            error:
+                typeof error === 'object' && error.error
+                    ? mapFirebaseError(error.error)
+                    : ensureError(error)
+        };
+    return { data, error: null };
+}
+
+/** Create an account using already validated and translated admin properties. */
+export async function createAccountAdmin(
+    projectId: string,
+    properties: UpdateAccountRequest,
+    token: string,
+    fetchFn?: typeof globalThis.fetch,
+    tenantId?: string
+) {
+    const url = createAdminIdentityURL(projectId, '', true, tenantId);
+    const { data, error } = await restFetch<
+        { localId: string },
+        FirebaseRestError
+    >(url, {
+        body: properties,
+        bearerToken: token,
+        global: { fetch: fetchFn }
+    });
+    if (error)
+        return {
+            data: null,
+            error:
+                typeof error === 'object' && error.error
+                    ? mapFirebaseError(error.error)
+                    : ensureError(error)
+        };
+    return { data, error: null };
+}
+
+/** Delete a single user account using admin credentials. */
+export async function deleteAccountAdmin(
+    projectId: string,
+    uid: string,
+    token: string,
+    fetchFn?: typeof globalThis.fetch,
+    tenantId?: string
+) {
+    const url = createAdminIdentityURL(projectId, 'delete', true, tenantId);
+    const { error } = await restFetch<object, FirebaseRestError>(url, {
+        body: { localId: uid },
+        bearerToken: token,
+        global: { fetch: fetchFn }
+    });
+    if (error)
+        return {
+            error:
+                typeof error === 'object' && error.error
+                    ? mapFirebaseError(error.error)
+                    : ensureError(error)
+        };
+    return { error: null };
 }
 
 /**

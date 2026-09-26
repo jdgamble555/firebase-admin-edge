@@ -1,6 +1,11 @@
 import {
+    createAccountAdmin,
+    updateAccountAdmin,
+    deleteAccountAdmin,
     createSessionCookie,
+    downloadAccount,
     getAccountInfo,
+    getAccountsInfo,
     revokeRefreshTokens
 } from './firebase-auth-endpoints.js';
 import {
@@ -16,6 +21,42 @@ import {
     ensureError
 } from './errors.js';
 import type { CacheConfig } from './cache-types.js';
+import {
+    createUserRecord,
+    createGetUsersResult,
+    type GetUsersResult,
+    type ListUsersResult
+} from './user-record.js';
+import type { UserRecord } from './user-record.js';
+import {
+    buildUserRequest,
+    buildUsersLookupRequest,
+    type UserIdentifier,
+    validateUserUid,
+    type CreateRequest,
+    type UpdateRequest
+} from './user-request.js';
+export type {
+    UserIdentifier,
+    UidIdentifier,
+    EmailIdentifier,
+    PhoneIdentifier,
+    ProviderIdentifier,
+    CreateRequest,
+    UpdateRequest,
+    UserProvider,
+    CreatePhoneMultiFactorInfoRequest,
+    UpdatePhoneMultiFactorInfoRequest
+} from './user-request.js';
+export type {
+    GetUsersResult,
+    ListUsersResult,
+    UserRecord
+} from './user-record.js';
+
+type AdminResult<T> =
+    | { data: T; error: null }
+    | { data: null; error: FirebaseEdgeError };
 
 /**
  * Firebase Admin Authentication handler for edge environments.
@@ -85,6 +126,235 @@ export class FirebaseAdminAuth {
         };
     }
 
+    /** Create a user and return the complete user record. */
+    async createUser(
+        properties: CreateRequest
+    ): Promise<AdminResult<UserRecord>> {
+        const request = buildUserRequest(properties, 'create');
+        if (request.error) return { data: null, error: request.error };
+        try {
+            const { data: token, error } = await this.getCachedToken();
+            if (error) return { data: null, error };
+            if (!token?.access_token)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            const result = await createAccountAdmin(
+                this.serviceAccountKey.project_id,
+                request.data,
+                token.access_token,
+                this.fetch,
+                this.tenantId
+            );
+            if (result.error)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_CREATE_USER_FAILED,
+                        { cause: result.error }
+                    )
+                };
+            if (!result.data?.localId)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_CREATE_USER_FAILED
+                    )
+                };
+            return await this.getManagedUser(
+                result.data.localId,
+                token.access_token
+            );
+        } catch (cause) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_CREATE_USER_FAILED,
+                    { cause: ensureError(cause) }
+                )
+            };
+        }
+    }
+
+    /** Update a user; null clears displayName, photoURL, or phoneNumber. */
+    async updateUser(
+        uid: string,
+        properties: UpdateRequest
+    ): Promise<AdminResult<UserRecord>> {
+        const uidError = validateUserUid(uid);
+        if (uidError) return { data: null, error: uidError };
+        const request = buildUserRequest(properties, 'update');
+        if (request.error) return { data: null, error: request.error };
+        try {
+            const { data: token, error } = await this.getCachedToken();
+            if (error) return { data: null, error };
+            if (!token?.access_token)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            const result = await updateAccountAdmin(
+                this.serviceAccountKey.project_id,
+                uid,
+                request.data,
+                token.access_token,
+                this.fetch,
+                this.tenantId
+            );
+            if (result.error)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_UPDATE_USER_FAILED,
+                        { cause: result.error }
+                    )
+                };
+            if (!result.data?.localId)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_UPDATE_USER_FAILED
+                    )
+                };
+            return await this.getManagedUser(
+                result.data.localId,
+                token.access_token
+            );
+        } catch (cause) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_UPDATE_USER_FAILED,
+                    { cause: ensureError(cause) }
+                )
+            };
+        }
+    }
+
+    /** Delete one user. A successful deletion returns undefined data. */
+    async deleteUser(uid: string): Promise<AdminResult<void>> {
+        const uidError = validateUserUid(uid);
+        if (uidError) return { data: null, error: uidError };
+        try {
+            const { data: token, error } = await this.getCachedToken();
+            if (error) return { data: null, error };
+            if (!token?.access_token)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            const result = await deleteAccountAdmin(
+                this.serviceAccountKey.project_id,
+                uid,
+                token.access_token,
+                this.fetch,
+                this.tenantId
+            );
+            if (result.error)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_DELETE_USER_FAILED,
+                        { cause: result.error }
+                    )
+                };
+            return { data: undefined, error: null };
+        } catch (cause) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_DELETE_USER_FAILED,
+                    { cause: ensureError(cause) }
+                )
+            };
+        }
+    }
+
+    /** Read back a complete record after a successful create or update. */
+    private async getManagedUser(
+        uid: string,
+        token: string
+    ): Promise<AdminResult<UserRecord>> {
+        const { data, error } = await getAccountInfo(
+            { uid },
+            token,
+            this.serviceAccountKey.project_id,
+            this.tenantId,
+            this.fetch
+        );
+        if (error) return { data: null, error };
+        if (!data)
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_USER_RECORD_NOT_FOUND
+                )
+            };
+        return { data: createUserRecord(data), error: null };
+    }
+
+    /** Look up at most 100 identifiers, returning users and unmatched identifiers. */
+    async getUsers(
+        identifiers: UserIdentifier[]
+    ): Promise<AdminResult<GetUsersResult>> {
+        const request = buildUsersLookupRequest(identifiers);
+        if (request.error) return { data: null, error: request.error };
+        if (identifiers.length === 0)
+            return { data: { users: [], notFound: [] }, error: null };
+        try {
+            const { data: token, error } = await this.getCachedToken();
+            if (error) return { data: null, error };
+            if (!token?.access_token)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            const result = await getAccountsInfo(
+                request.data,
+                token.access_token,
+                this.serviceAccountKey.project_id,
+                this.tenantId,
+                this.fetch
+            );
+            if (result.error)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_USER_LOOKUP_FAILED,
+                        { cause: result.error }
+                    )
+                };
+            if (!result.data || typeof result.data !== 'object')
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_USER_LOOKUP_FAILED
+                    )
+                };
+            return {
+                data: createGetUsersResult(identifiers, result.data),
+                error: null
+            };
+        } catch (cause) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_USER_LOOKUP_FAILED,
+                    { cause: ensureError(cause) }
+                )
+            };
+        }
+    }
+
     /**
      * Retrieves user account information by UID.
      *
@@ -120,6 +390,105 @@ export class FirebaseAdminAuth {
             data,
             error: null
         };
+    }
+
+    /**
+     * Lists one page of users, using Firebase Admin's page size and token contract.
+     * @param maxResults Page size (1–1000), defaults to 1000.
+     * @param pageToken Token returned by the previous page.
+     * @returns User records and an optional next page token, or a structured error.
+     */
+    async listUsers(
+        maxResults = 1000,
+        pageToken?: string
+    ): Promise<
+        | { data: ListUsersResult; error: null }
+        | { data: null; error: FirebaseEdgeError }
+    > {
+        if (
+            pageToken !== undefined &&
+            (typeof pageToken !== 'string' || pageToken.length === 0)
+        ) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_INVALID_PAGE_TOKEN
+                )
+            };
+        }
+        if (
+            !Number.isInteger(maxResults) ||
+            maxResults < 1 ||
+            maxResults > 1000
+        ) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError({
+                    ...FirebaseAdminAuthErrorInfo.ADMIN_API_INVALID_ARGUMENT,
+                    message:
+                        'maxResults must be a positive integer that does not exceed 1000.'
+                })
+            };
+        }
+
+        try {
+            const { data: token, error: tokenError } =
+                await this.getCachedToken();
+            if (tokenError) return { data: null, error: tokenError };
+            if (!token?.access_token) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            }
+
+            const { data, error } = await downloadAccount(
+                token.access_token,
+                this.serviceAccountKey.project_id,
+                maxResults,
+                pageToken,
+                this.tenantId,
+                this.fetch
+            );
+            if (error) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_LIST_USERS_FAILED,
+                        {
+                            cause: ensureError(error)
+                        }
+                    )
+                };
+            }
+            if (!data || typeof data !== 'object') {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_LIST_USERS_FAILED
+                    )
+                };
+            }
+            return {
+                data: {
+                    users: (data.users ?? []).map(createUserRecord),
+                    ...(data.nextPageToken !== undefined && {
+                        pageToken: data.nextPageToken
+                    })
+                },
+                error: null
+            };
+        } catch (error) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_LIST_USERS_FAILED,
+                    { cause: ensureError(error) }
+                )
+            };
+        }
     }
 
     /**

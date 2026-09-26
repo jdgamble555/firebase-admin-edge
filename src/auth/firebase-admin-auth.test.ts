@@ -7,6 +7,11 @@ import type {
     UserInfo
 } from './firebase-types.js';
 import {
+    getAccountsInfo,
+    createAccountAdmin,
+    updateAccountAdmin,
+    deleteAccountAdmin,
+    downloadAccount,
     getAccountInfo,
     createSessionCookie as createSessionCookieEndpoint
 } from './firebase-auth-endpoints.js';
@@ -24,6 +29,11 @@ import {
 } from './errors.js';
 
 vi.mock('./firebase-auth-endpoints.js', () => ({
+    getAccountsInfo: vi.fn(),
+    createAccountAdmin: vi.fn(),
+    updateAccountAdmin: vi.fn(),
+    deleteAccountAdmin: vi.fn(),
+    downloadAccount: vi.fn(),
     getAccountInfo: vi.fn(),
     createSessionCookie: vi.fn()
 }));
@@ -109,6 +119,569 @@ describe('FirebaseAdminAuth', () => {
 
     afterEach(() => {
         vi.resetAllMocks();
+    });
+
+    describe('getUsers', () => {
+        beforeEach(() => {
+            mockedGetToken.mockResolvedValue({
+                data: mockGoogleTokenResponse,
+                error: null
+            });
+            vi.mocked(getAccountsInfo).mockResolvedValue({
+                data: {},
+                error: null
+            });
+        });
+        it('returns records and unmatched identifiers using one batch request', async () => {
+            const customFetch = vi.fn<typeof fetch>();
+            const instance = new FirebaseAdminAuth(
+                serviceAccountKey,
+                'tenant',
+                customFetch
+            );
+            const ids = [{ uid: 'uid' }, { email: 'missing@example.com' }];
+            vi.mocked(getAccountsInfo).mockResolvedValue({
+                data: { users: [{ localId: 'uid' }] },
+                error: null
+            });
+            const { data, error } = await instance.getUsers(ids);
+            expect(error).toBeNull();
+            expect(data?.users[0]?.uid).toBe('uid');
+            expect(data?.notFound).toEqual([ids[1]]);
+            expect(getAccountsInfo).toHaveBeenCalledExactlyOnceWith(
+                { localId: ['uid'], email: ['missing@example.com'] },
+                'test-access-token',
+                'test-project',
+                'tenant',
+                customFetch
+            );
+        });
+        it('returns an empty batch without authentication or requests', async () => {
+            expect(await auth.getUsers([])).toEqual({
+                data: { users: [], notFound: [] },
+                error: null
+            });
+            expect(mockedGetToken).not.toHaveBeenCalled();
+            expect(getAccountsInfo).not.toHaveBeenCalled();
+        });
+        it('rejects invalid inputs before authentication', async () => {
+            expect((await auth.getUsers([{ uid: '' }])).error).toBeInstanceOf(
+                FirebaseEdgeError
+            );
+            expect(
+                (await auth.getUsers(Array(101).fill({ uid: 'uid' }))).error
+            ).toBeInstanceOf(FirebaseEdgeError);
+            expect(mockedGetToken).not.toHaveBeenCalled();
+            expect(getAccountsInfo).not.toHaveBeenCalled();
+        });
+        it('returns all identifiers in notFound when there are no matches', async () => {
+            expect(await auth.getUsers([{ uid: 'missing' }])).toEqual({
+                data: { users: [], notFound: [{ uid: 'missing' }] },
+                error: null
+            });
+        });
+        it('uses cached credentials', async () => {
+            const cache = {
+                getCache: vi.fn().mockResolvedValue(mockGoogleTokenResponse),
+                setCache: vi.fn()
+            };
+            const instance = new FirebaseAdminAuth(
+                serviceAccountKey,
+                undefined,
+                undefined,
+                cache
+            );
+            expect(
+                (await instance.getUsers([{ uid: 'uid' }])).error
+            ).toBeNull();
+            expect(mockedGetToken).not.toHaveBeenCalled();
+            expect(getAccountsInfo).toHaveBeenCalledTimes(1);
+        });
+        it('returns credential failures without a lookup', async () => {
+            const error = new FirebaseEdgeError(
+                FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED
+            );
+            mockedGetToken.mockResolvedValue({ data: null, error });
+            expect(await auth.getUsers([{ uid: 'uid' }])).toEqual({
+                data: null,
+                error
+            });
+            expect(getAccountsInfo).not.toHaveBeenCalled();
+        });
+        it('guards against missing access tokens', async () => {
+            mockedGetToken.mockResolvedValue({
+                data: {} as GoogleTokenResponse,
+                error: null
+            });
+            expect((await auth.getUsers([{ uid: 'uid' }])).error?.code).toBe(
+                'auth/admin-no-token-returned'
+            );
+            expect(getAccountsInfo).not.toHaveBeenCalled();
+        });
+        it('retains mapped endpoint failures as the cause', async () => {
+            const cause = new FirebaseEdgeError(
+                FirebaseEndpointErrorInfo.ENDPOINT_PERMISSION_DENIED
+            );
+            vi.mocked(getAccountsInfo).mockResolvedValue({
+                data: null,
+                error: cause
+            });
+            const result = await auth.getUsers([{ uid: 'uid' }]);
+            expect(result.data).toBeNull();
+            expect(result.error?.cause).toBe(cause);
+        });
+        it.each([null, 'not JSON', { users: [{}] }, { users: 'invalid' }])(
+            'returns structured errors for malformed responses %j',
+            async (data) => {
+                vi.mocked(getAccountsInfo).mockResolvedValue({
+                    data,
+                    error: null
+                } as Awaited<ReturnType<typeof getAccountsInfo>>);
+                const result = await auth.getUsers([{ uid: 'uid' }]);
+                expect(result.data).toBeNull();
+                expect(result.error?.code).toBe(
+                    'auth/admin-user-lookup-failed'
+                );
+            }
+        );
+        it('returns network and token exceptions rather than rejecting', async () => {
+            vi.mocked(getAccountsInfo).mockRejectedValue(new Error('offline'));
+            expect(
+                (await auth.getUsers([{ uid: 'uid' }])).error?.cause
+            ).toBeInstanceOf(Error);
+            mockedGetToken.mockRejectedValue('token failure');
+            expect(
+                (await auth.getUsers([{ uid: 'uid' }])).error?.cause
+            ).toBeInstanceOf(Error);
+        });
+    });
+
+    describe('user management', () => {
+        beforeEach(() => {
+            mockedGetToken.mockResolvedValue({
+                data: mockGoogleTokenResponse,
+                error: null
+            });
+            mockedGetAccountInfo.mockResolvedValue({
+                data: mockUserRecord,
+                error: null
+            });
+            vi.mocked(createAccountAdmin).mockResolvedValue({
+                data: { localId: 'uid-1' },
+                error: null
+            });
+            vi.mocked(updateAccountAdmin).mockResolvedValue({
+                data: { localId: 'uid-1' },
+                error: null
+            });
+            vi.mocked(deleteAccountAdmin).mockResolvedValue({ error: null });
+        });
+
+        it('creates a user and reads the full record with the same credentials', async () => {
+            const customFetch = vi.fn<typeof fetch>();
+            const instance = new FirebaseAdminAuth(
+                serviceAccountKey,
+                'tenant',
+                customFetch
+            );
+            const result = await instance.createUser({
+                email: 'test@example.com',
+                photoURL: 'https://example.com/photo',
+                disabled: false
+            });
+            expect(result.error).toBeNull();
+            expect(result.data?.uid).toBe('uid-1');
+            expect(result.data?.toJSON()).toMatchObject({
+                uid: 'uid-1',
+                email: 'test@example.com'
+            });
+            expect(createAccountAdmin).toHaveBeenCalledWith(
+                'test-project',
+                {
+                    email: 'test@example.com',
+                    photoUrl: 'https://example.com/photo',
+                    disabled: false
+                },
+                'test-access-token',
+                customFetch,
+                'tenant'
+            );
+            expect(mockedGetAccountInfo).toHaveBeenCalledWith(
+                { uid: 'uid-1' },
+                'test-access-token',
+                'test-project',
+                'tenant',
+                customFetch
+            );
+            expect(mockedGetToken).toHaveBeenCalledTimes(1);
+        });
+
+        it('updates through the existing endpoint with translated fields and tenant', async () => {
+            const result = await authWithTenant.updateUser('uid-1', {
+                displayName: null,
+                photoURL: null,
+                phoneNumber: null,
+                disabled: true
+            });
+            expect(result.error).toBeNull();
+            expect(result.data?.uid).toBe('uid-1');
+            expect(updateAccountAdmin).toHaveBeenCalledWith(
+                'test-project',
+                'uid-1',
+                {
+                    deleteAttribute: ['DISPLAY_NAME', 'PHOTO_URL'],
+                    deleteProvider: ['phone'],
+                    disableUser: true
+                },
+                'test-access-token',
+                undefined,
+                'test-tenant-id'
+            );
+            expect(mockedGetAccountInfo).toHaveBeenCalledWith(
+                { uid: 'uid-1' },
+                'test-access-token',
+                'test-project',
+                'test-tenant-id',
+                undefined
+            );
+        });
+
+        it('deletes without a follow-up lookup and returns void data', async () => {
+            expect(await authWithTenant.deleteUser('uid-1')).toEqual({
+                data: undefined,
+                error: null
+            });
+            expect(deleteAccountAdmin).toHaveBeenCalledWith(
+                'test-project',
+                'uid-1',
+                'test-access-token',
+                undefined,
+                'test-tenant-id'
+            );
+            expect(mockedGetAccountInfo).not.toHaveBeenCalled();
+        });
+
+        it.each(['', 'a'.repeat(129), null])(
+            'rejects invalid UID %s before authentication',
+            async (uid) => {
+                expect(
+                    (await auth.updateUser(uid as string, {})).error
+                ).toBeInstanceOf(FirebaseEdgeError);
+                expect(
+                    (await auth.deleteUser(uid as string)).error
+                ).toBeInstanceOf(FirebaseEdgeError);
+                expect(mockedGetToken).not.toHaveBeenCalled();
+            }
+        );
+
+        it('rejects invalid create and update properties before authentication', async () => {
+            expect(
+                (await auth.createUser({ email: 'invalid' })).error
+            ).toBeInstanceOf(FirebaseEdgeError);
+            expect(
+                (await auth.updateUser('uid', { password: 'short' })).error
+            ).toBeInstanceOf(FirebaseEdgeError);
+            expect(mockedGetToken).not.toHaveBeenCalled();
+        });
+
+        const operations = [
+            {
+                name: 'create',
+                run: () => auth.createUser({}),
+                endpoint: vi.mocked(createAccountAdmin)
+            },
+            {
+                name: 'update',
+                run: () => auth.updateUser('uid-1', {}),
+                endpoint: vi.mocked(updateAccountAdmin)
+            },
+            {
+                name: 'delete',
+                run: () => auth.deleteUser('uid-1'),
+                endpoint: vi.mocked(deleteAccountAdmin)
+            }
+        ];
+        describe.each(operations)('$name errors', ({ name, run, endpoint }) => {
+            it('returns credential errors without a write', async () => {
+                const error = new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED
+                );
+                mockedGetToken.mockResolvedValue({ data: null, error });
+                expect(await run()).toEqual({ data: null, error });
+                expect(endpoint).not.toHaveBeenCalled();
+            });
+            it('guards against missing credentials', async () => {
+                mockedGetToken.mockResolvedValue({
+                    data: {} as GoogleTokenResponse,
+                    error: null
+                });
+                expect((await run()).error?.code).toBe(
+                    'auth/admin-no-token-returned'
+                );
+                expect(endpoint).not.toHaveBeenCalled();
+            });
+            it('preserves API errors as the cause without a readback', async () => {
+                const cause = new FirebaseEdgeError(
+                    FirebaseEndpointErrorInfo.ENDPOINT_USER_NOT_FOUND
+                );
+                endpoint.mockResolvedValue({ data: null, error: cause });
+                const result = await run();
+                expect(result.data).toBeNull();
+                expect(result.error?.code).toBe(
+                    `auth/admin-${name}-user-failed`
+                );
+                expect(result.error?.cause).toBe(cause);
+                expect(mockedGetAccountInfo).not.toHaveBeenCalled();
+            });
+            it('returns transport exceptions instead of rejecting', async () => {
+                const cause = new Error('offline');
+                endpoint.mockRejectedValue(cause);
+                const result = await run();
+                expect(result.data).toBeNull();
+                expect(result.error?.cause).toBe(cause);
+            });
+            it('returns unexpected token exceptions', async () => {
+                mockedGetToken.mockRejectedValue('token failure');
+                const result = await run();
+                expect(result.data).toBeNull();
+                expect(result.error?.code).toBe(
+                    `auth/admin-${name}-user-failed`
+                );
+            });
+        });
+
+        describe.each(operations.slice(0, 2))(
+            '$name readback',
+            ({ run, endpoint }) => {
+                it('requires a UID in the write response', async () => {
+                    endpoint.mockResolvedValue({
+                        data: { localId: '' },
+                        error: null
+                    });
+                    expect((await run()).error).toBeInstanceOf(
+                        FirebaseEdgeError
+                    );
+                    expect(mockedGetAccountInfo).not.toHaveBeenCalled();
+                });
+                it('returns lookup errors', async () => {
+                    const error = new FirebaseEdgeError(
+                        FirebaseEndpointErrorInfo.ENDPOINT_USER_NOT_FOUND
+                    );
+                    mockedGetAccountInfo.mockResolvedValue({
+                        data: null,
+                        error
+                    });
+                    expect(await run()).toEqual({ data: null, error });
+                });
+                it('handles a missing user in the lookup response', async () => {
+                    mockedGetAccountInfo.mockResolvedValue({
+                        data: null,
+                        error: null
+                    });
+                    expect((await run()).error?.code).toBe(
+                        'auth/admin-user-record-not-found'
+                    );
+                });
+                it('returns conversion errors rather than rejecting', async () => {
+                    mockedGetAccountInfo.mockResolvedValue({
+                        data: { localId: 'uid', customAttributes: '{' },
+                        error: null
+                    });
+                    expect((await run()).error).toBeInstanceOf(
+                        FirebaseEdgeError
+                    );
+                });
+            }
+        );
+    });
+
+    describe('listUsers', () => {
+        const download = vi.mocked(downloadAccount);
+
+        beforeEach(() => {
+            mockedGetToken.mockResolvedValue({
+                data: mockGoogleTokenResponse,
+                error: null
+            });
+            download.mockResolvedValue({ data: {}, error: null });
+        });
+
+        it('requests the default page and converts the result', async () => {
+            download.mockResolvedValue({
+                data: { users: [{ localId: 'uid' }], nextPageToken: 'next' },
+                error: null
+            });
+            const { data, error } = await auth.listUsers();
+            expect(error).toBeNull();
+            expect(data?.pageToken).toBe('next');
+            expect(data?.users[0]).toMatchObject({
+                uid: 'uid',
+                emailVerified: false,
+                disabled: false
+            });
+            expect(download).toHaveBeenCalledExactlyOnceWith(
+                'test-access-token',
+                'test-project',
+                1000,
+                undefined,
+                undefined,
+                undefined
+            );
+        });
+
+        it('forwards pagination, tenant, and custom fetch to the endpoint', async () => {
+            const customFetch = vi.fn<typeof fetch>();
+            const instance = new FirebaseAdminAuth(
+                serviceAccountKey,
+                'tenant',
+                customFetch
+            );
+            expect(await instance.listUsers(25, 'opaque+/=')).toEqual({
+                data: { users: [] },
+                error: null
+            });
+            expect(download).toHaveBeenCalledExactlyOnceWith(
+                'test-access-token',
+                'test-project',
+                25,
+                'opaque+/=',
+                'tenant',
+                customFetch
+            );
+            expect(mockedGetToken).toHaveBeenCalledWith(
+                serviceAccountKey,
+                customFetch
+            );
+        });
+
+        it('defaults an undefined page size and omits an absent page token', async () => {
+            expect(await auth.listUsers(undefined)).toEqual({
+                data: { users: [] },
+                error: null
+            });
+        });
+
+        it('preserves an explicitly returned empty page token', async () => {
+            download.mockResolvedValue({
+                data: { nextPageToken: '' },
+                error: null
+            });
+            expect(await auth.listUsers()).toEqual({
+                data: { users: [], pageToken: '' },
+                error: null
+            });
+        });
+
+        it.each([0, -1, 1001, 1.5, NaN, Infinity, null, '10'])(
+            'rejects invalid page size %s before authentication',
+            async (size) => {
+                const result = await auth.listUsers(size as number);
+                expect(result.data).toBeNull();
+                expect(result.error?.code).toBe(
+                    'auth/admin-api-invalid-argument'
+                );
+                expect(mockedGetToken).not.toHaveBeenCalled();
+                expect(download).not.toHaveBeenCalled();
+            }
+        );
+
+        it.each(['', null, 123, {}])(
+            'rejects invalid page token %s before authentication',
+            async (pageToken) => {
+                const result = await auth.listUsers(25, pageToken as string);
+                expect(result.data).toBeNull();
+                expect(result.error?.code).toBe(
+                    'auth/admin-invalid-page-token'
+                );
+                expect(mockedGetToken).not.toHaveBeenCalled();
+                expect(download).not.toHaveBeenCalled();
+            }
+        );
+
+        it('returns authentication errors without calling the endpoint', async () => {
+            const error = new FirebaseEdgeError(
+                FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED
+            );
+            mockedGetToken.mockResolvedValue({ data: null, error });
+            expect(await auth.listUsers()).toEqual({ data: null, error });
+            expect(download).not.toHaveBeenCalled();
+        });
+
+        it('uses cached credentials', async () => {
+            const cache = {
+                getCache: vi.fn().mockResolvedValue(mockGoogleTokenResponse),
+                setCache: vi.fn()
+            };
+            const instance = new FirebaseAdminAuth(
+                serviceAccountKey,
+                undefined,
+                undefined,
+                cache
+            );
+            expect((await instance.listUsers()).error).toBeNull();
+            expect(mockedGetToken).not.toHaveBeenCalled();
+            expect(cache.getCache).toHaveBeenCalledWith('__cache');
+            expect(download).toHaveBeenCalledWith(
+                'test-access-token',
+                'test-project',
+                1000,
+                undefined,
+                undefined,
+                undefined
+            );
+        });
+
+        it('guards against a missing access token', async () => {
+            mockedGetToken.mockResolvedValue({
+                data: {} as GoogleTokenResponse,
+                error: null
+            });
+            expect((await auth.listUsers()).error?.code).toBe(
+                'auth/admin-no-token-returned'
+            );
+            expect(download).not.toHaveBeenCalled();
+        });
+
+        it('retains a mapped endpoint error as its cause', async () => {
+            const cause = new FirebaseEdgeError(
+                FirebaseEndpointErrorInfo.ENDPOINT_PERMISSION_DENIED
+            );
+            download.mockResolvedValue({ data: null, error: cause });
+            const result = await auth.listUsers();
+            expect(result.data).toBeNull();
+            expect(result.error?.code).toBe('auth/admin-list-users-failed');
+            expect(result.error?.cause).toBe(cause);
+        });
+
+        it.each([
+            null,
+            'not JSON',
+            { users: [{ localId: 'uid', customAttributes: '{' }] },
+            { users: [{}] },
+            { users: 'invalid' }
+        ])('returns an error for invalid endpoint data %j', async (data) => {
+            download.mockResolvedValue({ data, error: null } as Awaited<
+                ReturnType<typeof downloadAccount>
+            >);
+            const result = await auth.listUsers();
+            expect(result.data).toBeNull();
+            expect(result.error?.code).toBe('auth/admin-list-users-failed');
+        });
+
+        it('returns unexpected endpoint failures rather than rejecting', async () => {
+            const cause = new Error('offline');
+            download.mockRejectedValue(cause);
+            const result = await auth.listUsers();
+            expect(result.data).toBeNull();
+            expect(result.error?.cause).toBe(cause);
+        });
+
+        it('normalizes unexpected authentication failures', async () => {
+            mockedGetToken.mockRejectedValue('token failure');
+            const result = await auth.listUsers();
+            expect(result.data).toBeNull();
+            expect(result.error?.cause).toBeInstanceOf(Error);
+        });
     });
 
     describe('getUser', () => {

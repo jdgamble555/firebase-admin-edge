@@ -32,7 +32,7 @@ npm i firebase-admin-edge
 ## Setup
 
 For user lookups, token checks, and sessions, see the
-[Firebase Auth Helpers guide](FIREBASE_AUTH_HELPERS.md).
+[FirebaseAdminAuth guide](FIREBASE_ADMIN_AUTH.md).
 
 ```typescript
 import { createFirebaseEdgeServer } from 'firebase-admin-edge';
@@ -87,14 +87,14 @@ with Google or GitHub.
 
 Optional settings:
 
-| Setting              | Purpose                                                                                         |
-| -------------------- | ----------------------------------------------------------------------------------------------- |
-| `cookieName`         | Session cookie name. Defaults to `__session`.                                                   |
-| `cookieOptions`      | Cookie settings. Defaults to secure, HTTP-only, `sameSite: 'lax'`, path `/`, and five days.     |
-| `tenantId`           | Select a Firebase Auth tenant.                                                                  |
-| `autoLinkProviders`  | Try to link accounts with the same email. Defaults to off.                                      |
-| `fetch`              | Supply your own HTTP request function.                                                          |
-| `cache`, `cacheName` | Supply token cache callbacks and a cache key. See the [helper guide](FIREBASE_AUTH_HELPERS.md). |
+| Setting              | Purpose                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------- |
+| `cookieName`         | Session cookie name. Defaults to `__session`.                                               |
+| `cookieOptions`      | Cookie settings. Defaults to secure, HTTP-only, `sameSite: 'lax'`, path `/`, and five days. |
+| `tenantId`           | Select a Firebase Auth tenant.                                                              |
+| `autoLinkProviders`  | Try to link accounts with the same email. Defaults to off.                                  |
+| `fetch`              | Supply your own HTTP request function.                                                      |
+| `cache`, `cacheName` | Supply token cache callbacks and a cache key. See [TokenCache](TOKEN_CACHE.md).             |
 
 ## Sign in
 
@@ -239,7 +239,7 @@ Session durations are in milliseconds and default to five days.
 
 In the current implementation, `getUser(true)` also looks up the user, but does
 not check disabled status or revocation time. See the
-[session verification details](FIREBASE_AUTH_HELPERS.md#firebaseadminauth-server-tasks).
+[session verification details](FIREBASE_ADMIN_AUTH.md#sessions).
 
 ## Firebase Auth helpers
 
@@ -260,9 +260,157 @@ if (error) {
 }
 ```
 
-You can also import `FirebaseAuth`, `FirebaseAdminAuth`, and `TokenCache` directly.
-See [Firebase Auth Helpers](FIREBASE_AUTH_HELPERS.md) for simple examples and the
-full helper list.
+### Create a user
+
+Create a user from your server. Firebase generates a UID unless you provide one:
+
+```ts
+const { data: user, error } = await firebaseServer.adminAuth.createUser({
+    email: 'jane@example.com',
+    displayName: 'Jane Doe'
+});
+
+if (error) {
+    throw error;
+}
+
+console.log(user.uid, user.email);
+```
+
+You can also set `uid`, `password`, `phoneNumber`, `photoURL`, `emailVerified`,
+`disabled`, and phone-based `multiFactor` enrollments, using Firebase Admin's
+`CreateRequest` fields. An empty object creates a user with a generated UID.
+
+### Update a user
+
+Pass the user's UID and only the fields you want to change:
+
+```ts
+const { data: user, error } = await firebaseServer.adminAuth.updateUser(
+    'user-uid',
+    {
+        displayName: 'Jane Smith',
+        photoURL: null
+    }
+);
+
+if (error) {
+    throw error;
+}
+
+console.log(user.uid, user.displayName);
+```
+
+Use `null` to remove `displayName`, `photoURL`, or `phoneNumber`. Set `disabled`
+to `true` to disable the account, or `false` to enable it. Updates also support
+`providerToLink`, `providersToUnlink`, and replacing phone MFA enrollments with
+`multiFactor.enrolledFactors` (`null` or `[]` removes all enrolled factors).
+
+Create and update return the complete `UserRecord` after saving. Their
+`CreateRequest`, `UpdateRequest`, and `UserRecord` types can be imported from
+`firebase-admin-edge`.
+
+### Delete a user
+
+Delete a single user by UID:
+
+```ts
+const { error } = await firebaseServer.adminAuth.deleteUser('user-uid');
+
+if (error) {
+    throw error;
+}
+
+console.log('User deleted');
+```
+
+Deletion returns `{ data: undefined, error: null }` on success. All three
+methods return `{ data: null, error }` on failure and use the configured tenant
+when one is set. API errors are available through `error.cause`; a nonexistent
+UID is an error for update and delete.
+
+### Get several users
+
+Look up specific users in one request, using a mix of identifiers:
+
+```ts
+const { data, error } = await firebaseServer.adminAuth.getUsers([
+    { uid: 'user-uid' },
+    { email: 'jane@example.com' },
+    { phoneNumber: '+15555550100' },
+    { providerId: 'google.com', providerUid: 'google-user-id' }
+]);
+
+if (error) {
+    throw error;
+}
+
+console.table(data.users, ['uid', 'email', 'displayName']);
+console.log('Users not found:', data.notFound);
+```
+
+Each call accepts up to 100 identifiers. `users` contains full user records;
+`notFound` contains the original identifiers that did not match a user. Missing
+users are not an error. Results are not guaranteed to follow the input order,
+and multiple identifiers can match the same user. An empty array returns empty
+results without a request. Lookups use the configured tenant, if any.
+
+The `UserIdentifier` and `GetUsersResult` types are exported from
+`firebase-admin-edge`.
+
+### List users
+
+Load 25 users for the first page of a users table. Run this on your server:
+
+```ts
+const { data, error } = await firebaseServer.adminAuth.listUsers(25);
+
+if (error) {
+    throw error;
+}
+
+console.table(data.users, ['uid', 'email', 'displayName']);
+const nextPageToken = data.pageToken;
+```
+
+Keep `nextPageToken` with your pagination state. When the user clicks **Next**,
+pass that token to your server and fetch the next 25 users:
+
+```ts
+if (nextPageToken) {
+    const { data, error } = await firebaseServer.adminAuth.listUsers(
+        25,
+        nextPageToken
+    );
+
+    if (error) {
+        throw error;
+    }
+
+    console.table(data.users, ['uid', 'email', 'displayName']);
+    // Replace the displayed rows and save data.pageToken for the next click.
+}
+```
+
+Disable **Next** when there is no `pageToken`. Passing `undefined` starts again
+from the first page.
+
+The page size defaults to 1000 and accepts integers from 1 to 1000. Each call
+returns `{ data, error }`, where `data` contains `users` and an optional
+`pageToken`. If you configured a tenant, only that tenant's users are returned.
+User records include Firebase Admin fields such as `uid`, `email`, `metadata`,
+and `customClaims`. Use `user.toJSON()` for a plain object.
+
+## Class guides
+
+Each class has its own guide:
+
+- [FirebaseAdminAuth](FIREBASE_ADMIN_AUTH.md): user management, tokens, and sessions.
+- [FirebaseAuth](FIREBASE_AUTH.md): sign-in and provider linking.
+- [TokenCache](TOKEN_CACHE.md): in-memory caching.
+- [FirebaseEdgeError](FIREBASE_EDGE_ERROR.md): error codes, causes, and context.
+
+See [Standalone functions](FUNCTIONS.md) for the function reference.
 
 ## Features
 
@@ -288,11 +436,10 @@ connect those helpers to the main server API.
 - ☐ Email / Password / Annonymous Login
 - ☐ Reset Password
 - ☐ Change Email
-- ☐ Get User By ID
 - ☐ Get All Users with Order By and Pagination
-- ☐ Create User
-- ☐ Delete
-- ☐ Update User
+- ✅ Create User
+- ✅ Delete User
+- ✅ Update User
 - ☐ Add / Remove Custom Claims
 - ☐ Disable User (Ban User)
 - ☐ Add All Providers

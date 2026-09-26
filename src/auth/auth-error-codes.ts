@@ -1,4 +1,24 @@
 export const FirebaseAdminAuthErrorInfo = {
+    ADMIN_CREATE_USER_FAILED: {
+        message: 'Failed to create a Firebase Auth user.',
+        code: 'auth/admin-create-user-failed'
+    },
+    ADMIN_UPDATE_USER_FAILED: {
+        message: 'Failed to update a Firebase Auth user.',
+        code: 'auth/admin-update-user-failed'
+    },
+    ADMIN_DELETE_USER_FAILED: {
+        message: 'Failed to delete a Firebase Auth user.',
+        code: 'auth/admin-delete-user-failed'
+    },
+    ADMIN_LIST_USERS_FAILED: {
+        message: 'Failed to list Firebase Auth users.',
+        code: 'auth/admin-list-users-failed'
+    },
+    ADMIN_INVALID_PAGE_TOKEN: {
+        message: 'The page token must be a non-empty string.',
+        code: 'auth/admin-invalid-page-token'
+    },
     // User Management Errors
     ADMIN_USER_NOT_FOUND: {
         message: 'No user record found for the provided UID.',

@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 1.1.0
+
+### Minor Changes
+
+- 3830bda: list users
+
 ## 1.0.25
 
 ### Patch Changes

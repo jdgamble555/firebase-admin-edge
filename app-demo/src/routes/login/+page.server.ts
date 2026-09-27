@@ -1,4 +1,6 @@
-import { redirect } from '@sveltejs/kit';
+import { safeParse } from 'valibot';
+import { emailSchema } from '$lib/form-schemas';
+import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { getPathname } from '$lib/svelte-helpers';
 
@@ -13,10 +15,30 @@ export const load = (async ({ parent, url }) => {
 }) satisfies PageServerLoad;
 
 export const actions = {
+	email: async ({ locals: { authServer }, request }) => {
+		const form = await request.formData();
+		const { success, output: email, issues } = safeParse(emailSchema, form.get('email'));
+
+		if (!success) {
+			return fail(400, { message: issues[0].message, sent: false });
+		}
+
+		// Carry email in the link so it also works on another device.
+		const { error } = await authServer.sendSignInLinkToEmail(email, '/dashboard', {
+			includeEmailInLink: true
+		});
+
+		if (error) {
+			return fail(400, { message: error.message, sent: false });
+		}
+
+		return { message: 'Check your email for your sign-in link.', sent: true };
+	},
+
 	google: async ({ locals: { authServer } }) => {
 		const next = getPathname();
 
-		const loginUrl = await authServer.getGoogleLoginURL(next);
+		const loginUrl = await authServer.getProviderLoginURL('google', next);
 
 		redirect(302, loginUrl);
 	},
@@ -24,7 +46,7 @@ export const actions = {
 	github: async ({ locals: { authServer } }) => {
 		const next = getPathname();
 
-		const loginUrl = await authServer.getGitHubLoginURL(next);
+		const loginUrl = await authServer.getProviderLoginURL('github', next);
 
 		redirect(302, loginUrl);
 	},

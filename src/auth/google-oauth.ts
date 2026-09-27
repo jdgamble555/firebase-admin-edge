@@ -8,6 +8,23 @@ import { signJWT } from './firebase-jwt.js';
 import { FirebaseEdgeError, ensureError } from './errors.js';
 import { GoogleErrorInfo } from './auth-error-codes.js';
 
+type GoogleOAuthError = {
+    error: string;
+    error_description?: string;
+};
+
+/** Read both OAuth and Firebase-style token endpoint failures. @internal */
+function googleErrorMessage(
+    error: GoogleOAuthError | FirebaseRestError | string | null
+): string | undefined {
+    if (!error) return undefined;
+    if (typeof error === 'string') return error;
+    if (typeof error.error !== 'string') return error.error?.message;
+    const description =
+        'error_description' in error ? error.error_description : undefined;
+    return [error.error, description].filter(Boolean).join(': ');
+}
+
 export type TokenResults =
     | {
           data: null;
@@ -17,132 +34,6 @@ export type TokenResults =
           data: GoogleTokenResponse;
           error: null;
       };
-
-export async function exchangeCodeForGoogleIdToken(
-    code: string,
-    redirect_uri: string,
-    client_id: string,
-    client_secret: string,
-    fetchFn?: typeof globalThis.fetch
-): Promise<TokenResults> {
-    const url = 'https://oauth2.googleapis.com/token';
-
-    const { data, error } = await restFetch<
-        GoogleTokenResponse,
-        FirebaseRestError
-    >(url, {
-        global: { fetch: fetchFn },
-        body: {
-            code,
-            client_id,
-            client_secret,
-            redirect_uri,
-            grant_type: 'authorization_code'
-        },
-        form: true
-    });
-
-    if (error?.error.message) {
-        const errorMessage = error.error.message.toLowerCase();
-
-        if (errorMessage.includes('invalid_grant')) {
-            return {
-                data: null,
-                error: new FirebaseEdgeError(
-                    GoogleErrorInfo.GOOGLE_INVALID_GRANT,
-                    {
-                        context: { originalError: error.error.message }
-                    }
-                )
-            };
-        }
-
-        if (errorMessage.includes('invalid_client')) {
-            return {
-                data: null,
-                error: new FirebaseEdgeError(
-                    GoogleErrorInfo.GOOGLE_INVALID_CLIENT,
-                    {
-                        context: { originalError: error.error.message }
-                    }
-                )
-            };
-        }
-
-        if (errorMessage.includes('invalid_request')) {
-            return {
-                data: null,
-                error: new FirebaseEdgeError(
-                    GoogleErrorInfo.GOOGLE_INVALID_REQUEST,
-                    {
-                        context: { originalError: error.error.message }
-                    }
-                )
-            };
-        }
-
-        if (errorMessage.includes('access_denied')) {
-            return {
-                data: null,
-                error: new FirebaseEdgeError(
-                    GoogleErrorInfo.GOOGLE_ACCESS_DENIED,
-                    {
-                        context: { originalError: error.error.message }
-                    }
-                )
-            };
-        }
-
-        if (errorMessage.includes('unsupported_response_type')) {
-            return {
-                data: null,
-                error: new FirebaseEdgeError(
-                    GoogleErrorInfo.GOOGLE_UNSUPPORTED_RESPONSE_TYPE,
-                    {
-                        context: { originalError: error.error.message }
-                    }
-                )
-            };
-        }
-
-        if (errorMessage.includes('invalid_scope')) {
-            return {
-                data: null,
-                error: new FirebaseEdgeError(
-                    GoogleErrorInfo.GOOGLE_INVALID_SCOPE,
-                    {
-                        context: { originalError: error.error.message }
-                    }
-                )
-            };
-        }
-
-        // Default case for unrecognized errors
-        return {
-            data: null,
-            error: new FirebaseEdgeError(
-                GoogleErrorInfo.GOOGLE_CODE_EXCHANGE_FAILED,
-                {
-                    context: { originalError: error.error.message }
-                }
-            )
-        };
-    }
-
-    if (!data) {
-        return {
-            data: null,
-            error: new FirebaseEdgeError(
-                GoogleErrorInfo.GOOGLE_TOKEN_REQUEST_FAILED
-            )
-        };
-    }
-
-    return {
-        data,
-        error: null
-    };
-}
 
 export async function getToken(
     serviceAccount: ServiceAccount,
@@ -173,7 +64,7 @@ export async function getToken(
 
         const { data, error } = await restFetch<
             GoogleTokenResponse,
-            FirebaseRestError
+            GoogleOAuthError | FirebaseRestError | string
         >(url, {
             global: { fetch },
             body: {
@@ -187,8 +78,9 @@ export async function getToken(
             form: true
         });
 
-        if (error?.error.message) {
-            const errorMessage = error.error.message.toLowerCase();
+        const originalError = googleErrorMessage(error);
+        if (originalError) {
+            const errorMessage = originalError.toLowerCase();
 
             if (
                 errorMessage.includes('unavailable') ||
@@ -199,7 +91,7 @@ export async function getToken(
                     error: new FirebaseEdgeError(
                         GoogleErrorInfo.GOOGLE_TEMPORARILY_UNAVAILABLE,
                         {
-                            context: { originalError: error.error.message }
+                            context: { originalError }
                         }
                     )
                 };
@@ -214,7 +106,7 @@ export async function getToken(
                     error: new FirebaseEdgeError(
                         GoogleErrorInfo.GOOGLE_SERVER_ERROR,
                         {
-                            context: { originalError: error.error.message }
+                            context: { originalError }
                         }
                     )
                 };
@@ -226,7 +118,7 @@ export async function getToken(
                 error: new FirebaseEdgeError(
                     GoogleErrorInfo.SERVICE_ACCOUNT_TOKEN_FAILED,
                     {
-                        context: { originalError: error.error.message }
+                        context: { originalError }
                     }
                 )
             };

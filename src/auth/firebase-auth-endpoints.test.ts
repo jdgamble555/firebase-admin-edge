@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+    createAuthEmulatorFetch,
+    manageAuthConfig,
     generateEmailActionLink,
     deleteAccountsAdmin,
     importAccountsAdmin,
@@ -10,6 +12,7 @@ import {
     refreshFirebaseIdToken,
     createAuthUri,
     signInWithIdp,
+    executeProviderSignIn,
     signInWithCustomToken,
     getAccountInfo,
     downloadAccount,
@@ -17,14 +20,389 @@ import {
     getJWKs,
     getPublicKeys,
     sendOobCode,
+    confirmPasswordReset,
+    applyActionCode,
     signInWithEmailLink,
     linkWithOAuthCredential,
     unlinkProvider
 } from './firebase-auth-endpoints.js';
 import * as restFetch from '../rest-fetch.js';
 import { FirebaseEdgeError, FirebaseEndpointErrorInfo } from './errors.js';
+import type { AuthConfigOperation } from './auth-config-types.js';
 
 vi.mock('../rest-fetch.js');
+
+describe('auth emulator transport', () => {
+    it.each([
+        [
+            'identitytoolkit.googleapis.com/v1/projects/p/accounts:lookup',
+            'identitytoolkit.googleapis.com/v1/projects/p/accounts:lookup'
+        ],
+        [
+            'identitytoolkit.googleapis.com/v1/projects/p/tenants/t/accounts:lookup',
+            'identitytoolkit.googleapis.com/v1/projects/p/tenants/t/accounts:lookup'
+        ],
+        [
+            'identitytoolkit.googleapis.com/v2/projects/p/tenants/t/oauthIdpConfigs?pageSize=10',
+            'identitytoolkit.googleapis.com/v2/projects/p/tenants/t/oauthIdpConfigs?pageSize=10'
+        ],
+        [
+            'identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=fake',
+            'identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=fake'
+        ],
+        [
+            'securetoken.googleapis.com/v1/token?key=fake',
+            'securetoken.googleapis.com/v1/token?key=fake'
+        ]
+    ])(
+        'routes %s and replaces production credentials',
+        async (source, target) => {
+            const fetchFn = vi.fn().mockResolvedValue(new Response('{}'));
+            const emulatorFetch = createAuthEmulatorFetch(
+                'localhost:9099',
+                fetchFn
+            );
+            await emulatorFetch(`https://${source}`, {
+                method: 'POST',
+                body: '{"test":true}',
+                headers: {
+                    Authorization: 'Bearer production-secret',
+                    'X-Test': 'yes'
+                }
+            });
+            expect(fetchFn).toHaveBeenCalledWith(
+                `http://localhost:9099/${target}`,
+                expect.objectContaining({
+                    method: 'POST',
+                    body: '{"test":true}'
+                })
+            );
+            const headers = fetchFn.mock.calls[0]![1].headers as Headers;
+            expect(headers.get('Authorization')).toBe('Bearer owner');
+            expect(headers.get('X-Test')).toBe('yes');
+        }
+    );
+
+    it('supports URL and Request inputs, retaining their method and body', async () => {
+        const fetchFn = vi.fn().mockResolvedValue(new Response('{}'));
+        const emulatorFetch = createAuthEmulatorFetch('[::1]:9099', fetchFn);
+        await emulatorFetch(
+            new URL('https://securetoken.googleapis.com/v1/token')
+        );
+        expect(fetchFn.mock.calls[0]![0]).toBe(
+            'http://[::1]:9099/securetoken.googleapis.com/v1/token'
+        );
+        const request = new Request(
+            'https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken',
+            {
+                method: 'POST',
+                body: '{}',
+                headers: { Authorization: 'Bearer secret' }
+            }
+        );
+        await emulatorFetch(request);
+        const forwarded = fetchFn.mock.calls[1]![0] as Request;
+        expect(forwarded.url).toContain(
+            'http://[::1]:9099/identitytoolkit.googleapis.com/'
+        );
+        expect(forwarded.method).toBe('POST');
+        const body = await forwarded.text();
+        expect(body).toBe('{}');
+        expect(fetchFn.mock.calls[1]![1].headers.get('Authorization')).toBe(
+            'Bearer owner'
+        );
+    });
+
+    it('leaves other services and their credentials unchanged', async () => {
+        const fetchFn = vi.fn().mockResolvedValue(new Response('{}'));
+        const emulatorFetch = createAuthEmulatorFetch(
+            'localhost:9099',
+            fetchFn
+        );
+        const options = { headers: { Authorization: 'Bearer secret' } };
+        for (const url of [
+            'https://firestore.googleapis.com/v1/projects/p',
+            'https://oauth2.googleapis.com/token',
+            'https://identitytoolkit.googleapis.com.example.com/path'
+        ]) {
+            await emulatorFetch(url, options);
+            expect(fetchFn).toHaveBeenLastCalledWith(url, options);
+        }
+    });
+
+    it('rejects invalid hosts before creating a transport', () => {
+        expect(() =>
+            createAuthEmulatorFetch('http://localhost:9099', vi.fn())
+        ).toThrow();
+    });
+
+    it('propagates emulator failures without retrying production', async () => {
+        const fetchFn = vi.fn().mockRejectedValue(new Error('offline'));
+        const emulatorFetch = createAuthEmulatorFetch(
+            'localhost:9099',
+            fetchFn
+        );
+        const result = emulatorFetch(
+            'https://identitytoolkit.googleapis.com/v1/accounts:lookup'
+        );
+        await expect(result).rejects.toThrow('offline');
+        expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('configuration endpoints', () => {
+    beforeEach(() => vi.clearAllMocks());
+    it.each([
+        ['provider', 404, 'auth/configuration-not-found'],
+        ['tenant', 404, 'auth/tenant-not-found'],
+        ['provider', 409, 'auth/configuration-exists']
+    ] as const)('maps %s HTTP %s to %s', async (resource, code, expected) => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: null,
+            error: { error: { code, message: 'API error' } }
+        });
+        const result = await manageAuthConfig(
+            'p',
+            {
+                resource,
+                action: 'get',
+                id: resource === 'provider' ? 'oidc.a' : 't'
+            },
+            'token'
+        );
+        expect(result.error?.code).toBe(expected);
+    });
+    it.each([
+        ['provider', 'create', 'oidc.example', 'oauthIdpConfigs', 'POST'],
+        [
+            'provider',
+            'get',
+            'oidc.example',
+            'oauthIdpConfigs/oidc.example',
+            'GET'
+        ],
+        [
+            'provider',
+            'update',
+            'oidc.example',
+            'oauthIdpConfigs/oidc.example',
+            'PATCH'
+        ],
+        [
+            'provider',
+            'delete',
+            'oidc.example',
+            'oauthIdpConfigs/oidc.example',
+            'DELETE'
+        ],
+        ['provider', 'list', undefined, 'oauthIdpConfigs', 'GET'],
+        ['provider', 'create', 'saml.example', 'inboundSamlConfigs', 'POST'],
+        [
+            'provider',
+            'get',
+            'saml.example',
+            'inboundSamlConfigs/saml.example',
+            'GET'
+        ],
+        [
+            'provider',
+            'update',
+            'saml.example',
+            'inboundSamlConfigs/saml.example',
+            'PATCH'
+        ],
+        [
+            'provider',
+            'delete',
+            'saml.example',
+            'inboundSamlConfigs/saml.example',
+            'DELETE'
+        ],
+        ['project', 'get', undefined, 'config', 'GET'],
+        ['project', 'update', undefined, 'config', 'PATCH'],
+        ['tenant', 'create', undefined, 'tenants', 'POST'],
+        ['tenant', 'get', 't', 'tenants/t', 'GET'],
+        ['tenant', 'update', 't', 'tenants/t', 'PATCH'],
+        ['tenant', 'delete', 't', 'tenants/t', 'DELETE'],
+        ['tenant', 'list', undefined, 'tenants', 'GET']
+    ] as const)(
+        'routes %s %s %s using %s %s',
+        async (resource, action, id, path, method) => {
+            const provider = id?.startsWith('saml.')
+                ? {
+                      idpEntityId: 'idp',
+                      ssoURL: 'https://idp.example',
+                      x509Certificates: ['cert'],
+                      rpEntityId: 'rp'
+                  }
+                : { clientId: 'client', issuer: 'https://idp.example' };
+            const properties =
+                resource === 'provider'
+                    ? provider
+                    : resource === 'project'
+                      ? {
+                            emailPrivacyConfig: {
+                                enableImprovedEmailPrivacy: true
+                            }
+                        }
+                      : { displayName: 'Tenant' };
+            const operation: AuthConfigOperation = {
+                resource,
+                action,
+                id,
+                type: 'oidc',
+                properties
+            };
+            if (id?.startsWith('saml.')) operation.type = 'saml';
+            const response =
+                action === 'list' || resource === 'project'
+                    ? {}
+                    : {
+                          name: `projects/p/${path.split('/')[0]}/${id ?? 'new-tenant'}`,
+                          clientId: 'client',
+                          issuer: 'https://idp.example',
+                          idpConfig: {
+                              idpEntityId: 'idp',
+                              ssoUrl: 'https://idp.example'
+                          },
+                          spConfig: { spEntityId: 'rp' }
+                      };
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: response,
+                error: null
+            });
+            const fetchFn = vi.fn();
+            const result = await manageAuthConfig(
+                'p',
+                operation,
+                'token',
+                fetchFn,
+                'scope'
+            );
+            expect(result.error).toBeNull();
+            expect(restFetch.restFetch).toHaveBeenCalledWith(
+                `https://identitytoolkit.googleapis.com/v2/projects/p${resource === 'provider' ? '/tenants/scope' : ''}/${path}`,
+                expect.objectContaining({
+                    method,
+                    bearerToken: 'token',
+                    global: { fetch: fetchFn }
+                })
+            );
+            const options = vi.mocked(restFetch.restFetch).mock.calls[0]![1]!;
+            if (action === 'get' || action === 'list' || action === 'delete')
+                expect(options.body).toBeUndefined();
+            if (action === 'create' && resource === 'provider')
+                expect(options.params).toEqual({
+                    [id!.startsWith('oidc.')
+                        ? 'oauthIdpConfigId'
+                        : 'inboundSamlConfigId']: id
+                });
+            if (action === 'update')
+                expect(options.params?.updateMask).toBeTruthy();
+            if (action === 'delete') expect(result.data).toBeUndefined();
+        }
+    );
+
+    it('preserves nested SAML siblings with leaf masks and handles project scope', async () => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: {
+                name: 'projects/p/inboundSamlConfigs/saml.a',
+                idpConfig: {
+                    signRequest: false,
+                    idpEntityId: 'idp',
+                    ssoUrl: 'https://idp.example'
+                },
+                spConfig: { spEntityId: 'rp' }
+            },
+            error: null
+        });
+        const result = await manageAuthConfig(
+            'p',
+            {
+                resource: 'provider',
+                action: 'update',
+                id: 'saml.a',
+                properties: { enableRequestSigning: false }
+            },
+            'token'
+        );
+        expect(result.data).toMatchObject({ enableRequestSigning: false });
+        expect(restFetch.restFetch).toHaveBeenCalledWith(
+            'https://identitytoolkit.googleapis.com/v2/projects/p/inboundSamlConfigs/saml.a',
+            expect.objectContaining({
+                body: { idpConfig: { signRequest: false } },
+                params: { updateMask: 'idpConfig.signRequest' }
+            })
+        );
+    });
+
+    it('sends pagination and parses SAML pages', async () => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: { inboundSamlConfigs: [], nextPageToken: 'next' },
+            error: null
+        });
+        const result = await manageAuthConfig(
+            'p',
+            {
+                resource: 'provider',
+                action: 'list',
+                type: 'saml',
+                maxResults: 10,
+                pageToken: 'opaque token'
+            },
+            'token'
+        );
+        expect(result.data).toEqual({ providerConfigs: [], pageToken: 'next' });
+        expect(restFetch.restFetch).toHaveBeenCalledWith(
+            expect.stringContaining('/inboundSamlConfigs'),
+            expect.objectContaining({
+                params: { pageSize: '10', pageToken: 'opaque token' }
+            })
+        );
+    });
+
+    it('rejects invalid operations without HTTP calls', async () => {
+        const result = await manageAuthConfig(
+            'p',
+            { resource: 'provider', action: 'get', id: 'bad' },
+            'token'
+        );
+        expect(result.error?.code).toBe('auth/invalid-argument');
+        expect(restFetch.restFetch).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        { error: { code: 403, message: 'PERMISSION_DENIED' } },
+        'unavailable'
+    ])('maps API errors %j', async (error) => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({ data: null, error });
+        const result = await manageAuthConfig(
+            'p',
+            { resource: 'project', action: 'get' },
+            'token'
+        );
+        expect(result.data).toBeNull();
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+    });
+
+    it('handles network and malformed response failures', async () => {
+        vi.mocked(restFetch.restFetch)
+            .mockRejectedValueOnce(new Error('offline'))
+            .mockResolvedValueOnce({ data: null, error: null });
+        const network = await manageAuthConfig(
+            'p',
+            { resource: 'project', action: 'get' },
+            'token'
+        );
+        const malformed = await manageAuthConfig(
+            'p',
+            { resource: 'project', action: 'get' },
+            'token'
+        );
+        expect(network.error?.cause).toMatchObject({ message: 'offline' });
+        expect(malformed.error).toBeInstanceOf(FirebaseEdgeError);
+    });
+});
 
 describe('firebase-auth-endpoints', () => {
     const mockFetch = vi.fn();
@@ -50,15 +428,18 @@ describe('firebase-auth-endpoints', () => {
                     data: { oobLink: 'https://example.com/action' },
                     error: null
                 });
-                expect(
+                const generateEmailActionLinkResult =
                     await generateEmailActionLink(
                         PROJECT_ID,
                         body,
                         ACCESS_TOKEN,
                         mockFetch,
                         tenant
-                    )
-                ).toEqual({ data: 'https://example.com/action', error: null });
+                    );
+                expect(generateEmailActionLinkResult).toEqual({
+                    data: 'https://example.com/action',
+                    error: null
+                });
                 expect(restFetch.restFetch).toHaveBeenCalledWith(
                     `https://identitytoolkit.googleapis.com/v1/projects/test-project${tenant ? '/tenants/tenant' : ''}/accounts:sendOobCode`,
                     {
@@ -88,9 +469,12 @@ describe('firebase-auth-endpoints', () => {
                 data: null,
                 error: cause
             });
-            expect(
-                await generateEmailActionLink(PROJECT_ID, body, ACCESS_TOKEN)
-            ).toEqual({ data: null, error: cause });
+            const generateEmailActionLinkResult2 =
+                await generateEmailActionLink(PROJECT_ID, body, ACCESS_TOKEN);
+            expect(generateEmailActionLinkResult2).toEqual({
+                data: null,
+                error: cause
+            });
         });
         it.each([null, {}, { oobLink: '' }, { oobLink: 123 }])(
             'rejects an absent or invalid link %j',
@@ -141,15 +525,17 @@ describe('firebase-auth-endpoints', () => {
                     data: {},
                     error: null
                 });
-                expect(
-                    await deleteAccountsAdmin(
-                        PROJECT_ID,
-                        ['one', 'two'],
-                        ACCESS_TOKEN,
-                        mockFetch,
-                        tenantId
-                    )
-                ).toEqual({ data: {}, error: null });
+                const deleteAccountsAdminResult = await deleteAccountsAdmin(
+                    PROJECT_ID,
+                    ['one', 'two'],
+                    ACCESS_TOKEN,
+                    mockFetch,
+                    tenantId
+                );
+                expect(deleteAccountsAdminResult).toEqual({
+                    data: {},
+                    error: null
+                });
                 expect(restFetch.restFetch).toHaveBeenCalledWith(
                     `https://identitytoolkit.googleapis.com/v1/projects/test-project${tenantId ? '/tenants/tenant' : ''}/accounts:batchDelete`,
                     {
@@ -172,15 +558,17 @@ describe('firebase-auth-endpoints', () => {
                     data: response,
                     error: null
                 });
-                expect(
-                    await importAccountsAdmin(
-                        PROJECT_ID,
-                        body,
-                        ACCESS_TOKEN,
-                        mockFetch,
-                        tenantId
-                    )
-                ).toEqual({ data: response, error: null });
+                const importAccountsAdminResult = await importAccountsAdmin(
+                    PROJECT_ID,
+                    body,
+                    ACCESS_TOKEN,
+                    mockFetch,
+                    tenantId
+                );
+                expect(importAccountsAdminResult).toEqual({
+                    data: response,
+                    error: null
+                });
                 expect(restFetch.restFetch).toHaveBeenCalledWith(
                     `https://identitytoolkit.googleapis.com/v1/projects/test-project${tenantId ? '/tenants/tenant' : ''}/accounts:batchCreate`,
                     {
@@ -196,40 +584,42 @@ describe('firebase-auth-endpoints', () => {
                 data: null,
                 error: { error: { code: 403, message: 'PERMISSION_DENIED' } }
             });
-            expect(
-                (await deleteAccountsAdmin(PROJECT_ID, ['uid'], ACCESS_TOKEN))
-                    .error
-            ).toMatchObject({
+            const deleteAccountsAdminResult2 = await deleteAccountsAdmin(
+                PROJECT_ID,
+                ['uid'],
+                ACCESS_TOKEN
+            );
+            expect(deleteAccountsAdminResult2.error).toMatchObject({
                 code: FirebaseEndpointErrorInfo.ENDPOINT_PERMISSION_DENIED.code
             });
-            expect(
-                (
-                    await importAccountsAdmin(
-                        PROJECT_ID,
-                        { users: [] },
-                        ACCESS_TOKEN
-                    )
-                ).error
-            ).toMatchObject({
+            const importAccountsAdminResult2 = await importAccountsAdmin(
+                PROJECT_ID,
+                { users: [] },
+                ACCESS_TOKEN
+            );
+            expect(importAccountsAdminResult2.error).toMatchObject({
                 code: FirebaseEndpointErrorInfo.ENDPOINT_PERMISSION_DENIED.code
             });
             vi.mocked(restFetch.restFetch).mockResolvedValue({
                 data: null,
                 error: 'Unavailable'
             });
-            expect(
-                (await deleteAccountsAdmin(PROJECT_ID, ['uid'], ACCESS_TOKEN))
-                    .error?.message
-            ).toContain('Unavailable');
-            expect(
-                (
-                    await importAccountsAdmin(
-                        PROJECT_ID,
-                        { users: [] },
-                        ACCESS_TOKEN
-                    )
-                ).error?.message
-            ).toContain('Unavailable');
+            const deleteAccountsAdminResult3 = await deleteAccountsAdmin(
+                PROJECT_ID,
+                ['uid'],
+                ACCESS_TOKEN
+            );
+            expect(deleteAccountsAdminResult3.error?.message).toContain(
+                'Unavailable'
+            );
+            const importAccountsAdminResult3 = await importAccountsAdmin(
+                PROJECT_ID,
+                { users: [] },
+                ACCESS_TOKEN
+            );
+            expect(importAccountsAdminResult3.error?.message).toContain(
+                'Unavailable'
+            );
         });
         it('sends phone lookups as an array', async () => {
             vi.mocked(restFetch.restFetch).mockResolvedValue({
@@ -275,15 +665,14 @@ describe('firebase-auth-endpoints', () => {
                     data,
                     error: null
                 });
-                expect(
-                    await getAccountsInfo(
-                        body,
-                        ACCESS_TOKEN,
-                        PROJECT_ID,
-                        tenantId,
-                        mockFetch
-                    )
-                ).toEqual({ data, error: null });
+                const getAccountsInfoResult = await getAccountsInfo(
+                    body,
+                    ACCESS_TOKEN,
+                    PROJECT_ID,
+                    tenantId,
+                    mockFetch
+                );
+                expect(getAccountsInfoResult).toEqual({ data, error: null });
                 expect(restFetch.restFetch).toHaveBeenCalledWith(
                     `https://identitytoolkit.googleapis.com/v1/projects/test-project${tenantId ? '/tenants/tenant' : ''}/accounts:lookup`,
                     {
@@ -299,13 +688,12 @@ describe('firebase-auth-endpoints', () => {
                 data: {},
                 error: null
             });
-            expect(
-                await getAccountsInfo(
-                    { localId: ['missing'] },
-                    ACCESS_TOKEN,
-                    PROJECT_ID
-                )
-            ).toEqual({ data: {}, error: null });
+            const getAccountsInfoResult2 = await getAccountsInfo(
+                { localId: ['missing'] },
+                ACCESS_TOKEN,
+                PROJECT_ID
+            );
+            expect(getAccountsInfoResult2).toEqual({ data: {}, error: null });
         });
         it('maps Firebase failures and normalizes plain-text errors', async () => {
             vi.mocked(restFetch.restFetch)
@@ -316,26 +704,22 @@ describe('firebase-auth-endpoints', () => {
                     }
                 })
                 .mockResolvedValueOnce({ data: null, error: 'Unavailable' });
-            expect(
-                (
-                    await getAccountsInfo(
-                        { localId: ['uid'] },
-                        ACCESS_TOKEN,
-                        PROJECT_ID
-                    )
-                ).error
-            ).toMatchObject({
+            const getAccountsInfoResult3 = await getAccountsInfo(
+                { localId: ['uid'] },
+                ACCESS_TOKEN,
+                PROJECT_ID
+            );
+            expect(getAccountsInfoResult3.error).toMatchObject({
                 code: FirebaseEndpointErrorInfo.ENDPOINT_PERMISSION_DENIED.code
             });
-            expect(
-                (
-                    await getAccountsInfo(
-                        { localId: ['uid'] },
-                        ACCESS_TOKEN,
-                        PROJECT_ID
-                    )
-                ).error?.message
-            ).toContain('Unavailable');
+            const getAccountsInfoResult4 = await getAccountsInfo(
+                { localId: ['uid'] },
+                ACCESS_TOKEN,
+                PROJECT_ID
+            );
+            expect(getAccountsInfoResult4.error?.message).toContain(
+                'Unavailable'
+            );
         });
     });
 
@@ -347,15 +731,17 @@ describe('firebase-auth-endpoints', () => {
                     data: { localId: 'uid' },
                     error: null
                 });
-                expect(
-                    await createAccountAdmin(
-                        PROJECT_ID,
-                        { email: 'user@example.com', disabled: false },
-                        ACCESS_TOKEN,
-                        mockFetch,
-                        tenantId
-                    )
-                ).toEqual({ data: { localId: 'uid' }, error: null });
+                const createAccountAdminResult = await createAccountAdmin(
+                    PROJECT_ID,
+                    { email: 'user@example.com', disabled: false },
+                    ACCESS_TOKEN,
+                    mockFetch,
+                    tenantId
+                );
+                expect(createAccountAdminResult).toEqual({
+                    data: { localId: 'uid' },
+                    error: null
+                });
                 expect(restFetch.restFetch).toHaveBeenCalledWith(
                     `https://identitytoolkit.googleapis.com/v1/projects/test-project${tenantId ? '/tenants/tenant' : ''}/accounts`,
                     {
@@ -399,15 +785,14 @@ describe('firebase-auth-endpoints', () => {
                     data: {},
                     error: null
                 });
-                expect(
-                    await deleteAccountAdmin(
-                        PROJECT_ID,
-                        'uid',
-                        ACCESS_TOKEN,
-                        mockFetch,
-                        tenantId
-                    )
-                ).toEqual({ error: null });
+                const deleteAccountAdminResult = await deleteAccountAdmin(
+                    PROJECT_ID,
+                    'uid',
+                    ACCESS_TOKEN,
+                    mockFetch,
+                    tenantId
+                );
+                expect(deleteAccountAdminResult).toEqual({ error: null });
                 expect(restFetch.restFetch).toHaveBeenCalledWith(
                     `https://identitytoolkit.googleapis.com/v1/projects/test-project${tenantId ? '/tenants/tenant' : ''}/accounts:delete`,
                     {
@@ -425,24 +810,31 @@ describe('firebase-auth-endpoints', () => {
                     data: null,
                     error: { error: { code: 400, message } }
                 });
-                expect(
-                    (await createAccountAdmin(PROJECT_ID, {}, ACCESS_TOKEN))
-                        .error
-                ).toBeInstanceOf(FirebaseEdgeError);
-                expect(
-                    (
-                        await updateAccountAdmin(
-                            PROJECT_ID,
-                            'uid',
-                            {},
-                            ACCESS_TOKEN
-                        )
-                    ).error
-                ).toBeInstanceOf(FirebaseEdgeError);
-                expect(
-                    (await deleteAccountAdmin(PROJECT_ID, 'uid', ACCESS_TOKEN))
-                        .error
-                ).toBeInstanceOf(FirebaseEdgeError);
+                const createAccountAdminResult2 = await createAccountAdmin(
+                    PROJECT_ID,
+                    {},
+                    ACCESS_TOKEN
+                );
+                expect(createAccountAdminResult2.error).toBeInstanceOf(
+                    FirebaseEdgeError
+                );
+                const updateAccountAdminResult = await updateAccountAdmin(
+                    PROJECT_ID,
+                    'uid',
+                    {},
+                    ACCESS_TOKEN
+                );
+                expect(updateAccountAdminResult.error).toBeInstanceOf(
+                    FirebaseEdgeError
+                );
+                const deleteAccountAdminResult2 = await deleteAccountAdmin(
+                    PROJECT_ID,
+                    'uid',
+                    ACCESS_TOKEN
+                );
+                expect(deleteAccountAdminResult2.error).toBeInstanceOf(
+                    FirebaseEdgeError
+                );
             }
         );
         it('normalizes non-JSON errors for admin writes', async () => {
@@ -450,18 +842,31 @@ describe('firebase-auth-endpoints', () => {
                 data: null,
                 error: 'Unavailable'
             });
-            expect(
-                (await createAccountAdmin(PROJECT_ID, {}, ACCESS_TOKEN)).error
-                    ?.message
-            ).toContain('Unavailable');
-            expect(
-                (await updateAccountAdmin(PROJECT_ID, 'uid', {}, ACCESS_TOKEN))
-                    .error?.message
-            ).toContain('Unavailable');
-            expect(
-                (await deleteAccountAdmin(PROJECT_ID, 'uid', ACCESS_TOKEN))
-                    .error?.message
-            ).toContain('Unavailable');
+            const createAccountAdminResult3 = await createAccountAdmin(
+                PROJECT_ID,
+                {},
+                ACCESS_TOKEN
+            );
+            expect(createAccountAdminResult3.error?.message).toContain(
+                'Unavailable'
+            );
+            const updateAccountAdminResult2 = await updateAccountAdmin(
+                PROJECT_ID,
+                'uid',
+                {},
+                ACCESS_TOKEN
+            );
+            expect(updateAccountAdminResult2.error?.message).toContain(
+                'Unavailable'
+            );
+            const deleteAccountAdminResult3 = await deleteAccountAdmin(
+                PROJECT_ID,
+                'uid',
+                ACCESS_TOKEN
+            );
+            expect(deleteAccountAdminResult3.error?.message).toContain(
+                'Unavailable'
+            );
         });
         it('looks up the complete record with a UID array', async () => {
             vi.mocked(restFetch.restFetch).mockResolvedValue({
@@ -560,7 +965,11 @@ describe('firebase-auth-endpoints', () => {
                 data,
                 error: null
             });
-            expect(await downloadAccount(ACCESS_TOKEN, PROJECT_ID)).toEqual({
+            const downloadAccountResult = await downloadAccount(
+                ACCESS_TOKEN,
+                PROJECT_ID
+            );
+            expect(downloadAccountResult).toEqual({
                 data,
                 error: null
             });
@@ -685,6 +1094,33 @@ describe('firebase-auth-endpoints', () => {
     });
 
     describe('createAuthUri', () => {
+        it.each(['google', 'google.com', 'github', 'apple', 'oidc.company'])(
+            'uses server callback code flow only for Google: %s',
+            async (provider) => {
+                vi.mocked(restFetch.restFetch).mockResolvedValue({
+                    data: { authUri: 'https://provider/authorize' },
+                    error: null
+                });
+                await createAuthUri(
+                    'https://app/auth/callback',
+                    API_KEY,
+                    undefined,
+                    mockFetch,
+                    provider
+                );
+                const options = vi
+                    .mocked(restFetch.restFetch)
+                    .mock.calls.at(-1)?.[1];
+                if (provider === 'google' || provider === 'google.com') {
+                    expect(options?.body).toMatchObject({
+                        providerId: 'google.com',
+                        authFlowType: 'CODE_FLOW'
+                    });
+                    return;
+                }
+                expect(options?.body).not.toHaveProperty('authFlowType');
+            }
+        );
         it('should create auth URI successfully', async () => {
             const mockResponse = { authUri: 'https://auth.example.com' };
 
@@ -710,7 +1146,8 @@ describe('firebase-auth-endpoints', () => {
                 expect.objectContaining({
                     body: {
                         continueUri: 'https://redirect.com',
-                        providerId: 'google.com'
+                        providerId: 'google.com',
+                        authFlowType: 'CODE_FLOW'
                     },
                     params: { key: API_KEY },
                     global: { fetch: mockFetch }
@@ -744,6 +1181,7 @@ describe('firebase-auth-endpoints', () => {
                     body: {
                         continueUri: 'https://redirect.com',
                         providerId: 'google.com',
+                        authFlowType: 'CODE_FLOW',
                         tenantId: tenantId
                     },
                     params: { key: API_KEY },
@@ -1308,6 +1746,50 @@ describe('firebase-auth-endpoints', () => {
     });
 
     describe('sendOobCode', () => {
+        it('sends magic links through Firebase email delivery', async () => {
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: { email: 'a@b.com' },
+                error: null
+            });
+            const result = await sendOobCode(
+                'EMAIL_SIGNIN',
+                API_KEY,
+                {
+                    email: 'a@b.com',
+                    continueUrl: 'https://app/email',
+                    locale: 'fr'
+                },
+                'tenant',
+                mockFetch
+            );
+            expect(result.error).toBeNull();
+            expect(restFetch.restFetch).toHaveBeenCalledWith(
+                expect.stringContaining('accounts:sendOobCode'),
+                expect.objectContaining({
+                    body: {
+                        requestType: 'EMAIL_SIGNIN',
+                        email: 'a@b.com',
+                        continueUrl: 'https://app/email',
+                        canHandleCodeInApp: true,
+                        tenantId: 'tenant'
+                    },
+                    headers: { 'X-Firebase-Locale': 'fr' },
+                    params: { key: API_KEY },
+                    global: { fetch: mockFetch }
+                })
+            );
+        });
+        it.each([
+            ['invalid', 'https://app'],
+            ['a@b.com', 'javascript:bad']
+        ])('validates magic link settings', async (email, continueUrl) => {
+            const result = await sendOobCode('EMAIL_SIGNIN', API_KEY, {
+                email: email!,
+                continueUrl: continueUrl!
+            });
+            expect(result.error).toBeTruthy();
+            expect(restFetch.restFetch).not.toHaveBeenCalled();
+        });
         it('should send password reset email successfully', async () => {
             const mockResponse = { email: 'test@example.com' };
 
@@ -1839,4 +2321,380 @@ describe('firebase-auth-endpoints', () => {
             expect(result.error).toBeInstanceOf(FirebaseEdgeError);
         });
     });
+});
+
+describe('provider authorization endpoints', () => {
+    it.each([
+        'apple.com',
+        'microsoft.com',
+        'yahoo.com',
+        'oidc.company',
+        'facebook.com'
+    ])('preserves returned nonce when linking %s', async (providerId) => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: { idToken: 'linked' },
+            error: null
+        });
+        await linkWithOAuthCredential(
+            'existing',
+            { idToken: 'provider-id', rawNonce: 'nonce&+' },
+            'https://app',
+            providerId,
+            'key'
+        );
+        const options = vi.mocked(restFetch.restFetch).mock.calls.at(-1)![1]!;
+        const body = options.body as { postBody: string };
+        const post = new URLSearchParams(body.postBody);
+        expect(post.get('nonce')).toBe('nonce&+');
+        expect(post.get('id_token')).toBe('provider-id');
+        expect(post.get('providerId')).toBe(providerId);
+    });
+    it('retains EMAIL_EXISTS credentials for automatic linking without mutating the response', async () => {
+        const response = Object.freeze({
+            errorMessage: 'EMAIL_EXISTS',
+            email: 'user@example.com',
+            providerId: 'facebook.com',
+            oauthAccessToken: 'access'
+        });
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: response,
+            error: null
+        });
+        const result = await executeProviderSignIn(
+            { callback: { requestUri: 'https://app', sessionId: 's' } },
+            'key'
+        );
+        expect(result).toEqual({
+            data: { ...response, needConfirmation: true },
+            error: null
+        });
+        expect(response).not.toHaveProperty('needConfirmation');
+    });
+    it.each([
+        'EMAIL_EXISTS',
+        'FEDERATED_USER_ID_ALREADY_LINKED',
+        'USER_DISABLED'
+    ])('rejects HTTP-success linking errors: %s', async (errorMessage) => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: { errorMessage, idToken: 'must-not-be-used' },
+            error: null
+        });
+        const result = await executeProviderSignIn(
+            {
+                callback: {
+                    requestUri: 'https://app',
+                    pendingToken: 'pending'
+                },
+                idToken: 'existing'
+            },
+            'key'
+        );
+        expect(result.data).toBeNull();
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+    });
+    beforeEach(() => vi.resetAllMocks());
+    it.each([
+        'facebook.com',
+        'apple.com',
+        'twitter.com',
+        'microsoft.com',
+        'yahoo.com',
+        'oidc.company',
+        'saml.company'
+    ])(
+        'starts %s authorization with tenant and options',
+        async (providerId) => {
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: { authUri: 'https://provider', sessionId: 'session' },
+                error: null
+            });
+            const fetchFn = vi.fn();
+            const result = await createAuthUri(
+                'https://app/callback',
+                'key',
+                'tenant',
+                fetchFn,
+                providerId,
+                {
+                    addScopes: ['email', 'profile'],
+                    customParameters: { tenant: 'organization' }
+                }
+            );
+            expect(result.data?.sessionId).toBe('session');
+            expect(restFetch.restFetch).toHaveBeenCalledWith(
+                expect.stringContaining('accounts:createAuthUri'),
+                expect.objectContaining({
+                    global: { fetch: fetchFn },
+                    params: { key: 'key' },
+                    body: {
+                        continueUri: 'https://app/callback',
+                        providerId,
+                        tenantId: 'tenant',
+                        oauthScope: 'email profile',
+                        customParameter: { tenant: 'organization' }
+                    }
+                })
+            );
+        }
+    );
+    it.each([false, true])(
+        'encodes Twitter sign-in/link credentials (link=%s)',
+        async (link) => {
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: { idToken: 'firebase' },
+                error: null
+            });
+            const credential = { accessToken: 'a&b', secret: 's+e' };
+            if (link)
+                await linkWithOAuthCredential(
+                    'firebase-user',
+                    credential,
+                    'https://app',
+                    'twitter.com',
+                    'key',
+                    'tenant'
+                );
+            else
+                await signInWithIdp(
+                    credential,
+                    'https://app',
+                    'twitter.com',
+                    'key',
+                    'tenant'
+                );
+            const options = vi.mocked(restFetch.restFetch).mock.calls[0]![1]!;
+            const body = options.body as Record<string, string>;
+            const post = new URLSearchParams(body.postBody);
+            expect(post.get('access_token')).toBe('a&b');
+            expect(post.get('oauth_token_secret')).toBe('s+e');
+            expect(post.get('providerId')).toBe('twitter.com');
+            expect(body.tenantId).toBe('tenant');
+            expect(body.idToken).toBe(link ? 'firebase-user' : undefined);
+        }
+    );
+    it('completes form callbacks with session binding and optional linking', async () => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: { idToken: 'firebase' },
+            error: null
+        });
+        const result = await executeProviderSignIn(
+            {
+                callback: {
+                    requestUri: 'https://app/callback',
+                    sessionId: 'session',
+                    postBody: 'SAMLResponse=encoded'
+                },
+                idToken: 'existing-user'
+            },
+            'key',
+            'tenant'
+        );
+        expect(result.data?.idToken).toBe('firebase');
+        expect(restFetch.restFetch).toHaveBeenCalledWith(
+            expect.stringContaining('accounts:signInWithIdp'),
+            expect.objectContaining({
+                body: {
+                    requestUri: 'https://app/callback',
+                    sessionId: 'session',
+                    postBody: 'SAMLResponse=encoded',
+                    idToken: 'existing-user',
+                    returnSecureToken: true,
+                    returnIdpCredential: true,
+                    tenantId: 'tenant'
+                }
+            })
+        );
+    });
+    it('rejects incomplete callbacks before fetching', async () => {
+        const request = executeProviderSignIn(
+            { callback: { requestUri: 'https://app', sessionId: '' } },
+            'key'
+        );
+        await expect(request).rejects.toThrow('session ID');
+        expect(restFetch.restFetch).not.toHaveBeenCalled();
+    });
+    it('links a pending credential without replaying the authorization callback', async () => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: { idToken: 'linked' },
+            error: null
+        });
+        const result = await executeProviderSignIn(
+            {
+                callback: {
+                    requestUri: 'https://app/callback',
+                    pendingToken: 'pending'
+                },
+                idToken: 'existing'
+            },
+            'key',
+            'tenant'
+        );
+        expect(result.data?.idToken).toBe('linked');
+        expect(restFetch.restFetch).toHaveBeenCalledWith(
+            expect.stringContaining('accounts:signInWithIdp'),
+            expect.objectContaining({
+                body: {
+                    requestUri: 'https://app/callback',
+                    pendingToken: 'pending',
+                    idToken: 'existing',
+                    returnSecureToken: true,
+                    returnIdpCredential: true,
+                    tenantId: 'tenant'
+                }
+            })
+        );
+    });
+    it.each([
+        { requestUri: 'https://app/callback', pendingToken: '' },
+        { requestUri: '', pendingToken: 'pending' }
+    ])('rejects incomplete pending credentials: %j', async (callback) => {
+        const result = executeProviderSignIn({ callback }, 'key');
+        await expect(result).rejects.toThrow('pending token');
+        expect(restFetch.restFetch).not.toHaveBeenCalled();
+    });
+    it('maps provider authorization errors', async () => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: null,
+            error: { error: { message: 'OPERATION_NOT_ALLOWED' } }
+        });
+        const result = await createAuthUri(
+            'https://app',
+            'key',
+            undefined,
+            undefined,
+            'facebook'
+        );
+        expect(result.data).toBeNull();
+        expect(result.error).toBeInstanceOf(FirebaseEdgeError);
+    });
+});
+
+describe('password reset and email changes', () => {
+    beforeEach(() => vi.resetAllMocks());
+    it('sends a verification to the new email with the user token and tenant', async () => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: { email: 'new@example.com' },
+            error: null
+        });
+        const fetchFn = vi.fn();
+        const result = await sendOobCode(
+            'VERIFY_AND_CHANGE_EMAIL',
+            'key',
+            {
+                idToken: 'id',
+                newEmail: 'new@example.com',
+                continueUrl: 'https://app/auth/callback',
+                locale: 'fr'
+            },
+            'tenant',
+            fetchFn
+        );
+        expect(result.error).toBeNull();
+        expect(restFetch.restFetch).toHaveBeenCalledWith(
+            'https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode',
+            expect.objectContaining({
+                global: { fetch: fetchFn },
+                params: { key: 'key' },
+                headers: { 'X-Firebase-Locale': 'fr' },
+                body: {
+                    requestType: 'VERIFY_AND_CHANGE_EMAIL',
+                    idToken: 'id',
+                    newEmail: 'new@example.com',
+                    continueUrl: 'https://app/auth/callback',
+                    canHandleCodeInApp: false,
+                    tenantId: 'tenant'
+                }
+            })
+        );
+    });
+    it.each(['email', 'token', 'url'])(
+        'rejects invalid email-change %s',
+        async (field) => {
+            const result = await sendOobCode('VERIFY_AND_CHANGE_EMAIL', 'key', {
+                idToken: field === 'token' ? '' : 'id',
+                newEmail: field === 'email' ? 'bad' : 'a@b.com',
+                continueUrl: field === 'url' ? 'javascript:bad' : 'https://app'
+            });
+            expect(result.error).toBeTruthy();
+            expect(restFetch.restFetch).not.toHaveBeenCalled();
+        }
+    );
+    it('rejects an invalid reset email', async () => {
+        const result = await sendOobCode('PASSWORD_RESET', 'key', {
+            email: 'bad'
+        });
+        expect(result.error).toBeTruthy();
+        expect(restFetch.restFetch).not.toHaveBeenCalled();
+    });
+    it('completes a reset with the exact password and tenant', async () => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: { email: 'a@b.com' },
+            error: null
+        });
+        const fetchFn = vi.fn();
+        const result = await confirmPasswordReset(
+            'code',
+            ' password ',
+            'key',
+            'tenant',
+            fetchFn
+        );
+        expect(result.data).toEqual({ email: 'a@b.com' });
+        expect(restFetch.restFetch).toHaveBeenCalledWith(
+            'https://identitytoolkit.googleapis.com/v1/accounts:resetPassword',
+            {
+                global: { fetch: fetchFn },
+                params: { key: 'key' },
+                body: {
+                    oobCode: 'code',
+                    newPassword: ' password ',
+                    tenantId: 'tenant'
+                }
+            }
+        );
+    });
+    it.each([
+        ['', 'password'],
+        ['code', '']
+    ])('rejects empty reset inputs', async (code, password) => {
+        const result = await confirmPasswordReset(code!, password!, 'key');
+        expect(result.error).toBeTruthy();
+        expect(restFetch.restFetch).not.toHaveBeenCalled();
+    });
+    it('applies an email code with tenant and custom fetch', async () => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: { email: 'new@b.com' },
+            error: null
+        });
+        const fetchFn = vi.fn();
+        const result = await applyActionCode('code', 'key', 'tenant', fetchFn);
+        expect(result.error).toBeNull();
+        expect(restFetch.restFetch).toHaveBeenCalledWith(
+            'https://identitytoolkit.googleapis.com/v1/accounts:update',
+            {
+                global: { fetch: fetchFn },
+                params: { key: 'key' },
+                body: { oobCode: 'code', tenantId: 'tenant' }
+            }
+        );
+    });
+    it('rejects a missing email code', async () => {
+        const result = await applyActionCode(' ', 'key');
+        expect(result.error?.code).toBe('auth/invalid-action-code');
+        expect(restFetch.restFetch).not.toHaveBeenCalled();
+    });
+    it.each(['reset', 'email'])(
+        'maps expired code errors for %s',
+        async (operation) => {
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: null,
+                error: { error: { message: 'EXPIRED_OOB_CODE' } }
+            });
+            const result =
+                operation === 'reset'
+                    ? await confirmPasswordReset('code', 'password', 'key')
+                    : await applyActionCode('code', 'key');
+            expect(result.error?.code).toBe('auth/expired-action-code');
+        }
+    );
 });

@@ -12,9 +12,11 @@ export class TokenCache {
 
     get<T>(key: string): T | undefined {
         const entry = this.store.get(key);
-        if (!entry) return undefined;
+        if (!entry) {
+            return undefined;
+        }
 
-        if (Date.now() > entry.expires) {
+        if (Date.now() >= entry.expires) {
             this.store.delete(key);
             return undefined;
         }

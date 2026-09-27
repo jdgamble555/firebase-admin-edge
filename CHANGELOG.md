@@ -1,5 +1,52 @@
 # firebase-admin-edge
 
+## Unreleased
+
+### Added
+
+- Server-side magic-link email delivery and session creation through
+  `sendSignInLinkToEmail` and the shared `signInWithCallback`. The optional
+  `includeEmailInLink` setting carries email in encrypted, expiring state across
+  devices. The demo includes email login and a POST confirmation page.
+
+### Breaking changes
+
+- Public promise-returning Firestore methods now resolve to `{ error, data }`,
+  including document/query reads, writes, transaction reads, and BulkWriter.
+  Check `error` before using `data`. Synchronous builders, streams, listeners,
+  and async iterators retain their existing contracts.
+
+- Google and GitHub server login/link methods now use Firebase-managed authorization.
+  Configure provider credentials in Firebase Console; the `createFirebaseEdgeServer`
+  `providers` option and manual OAuth code-exchange helpers have been removed.
+- Google URL methods now accept the shared provider options. Use
+  `customParameters: { hl: 'en' }` instead of `languageCode: 'en'`.
+- GET callbacks require the stored authorization-flow cookie. Restart any login
+  begun with the old manual flow after upgrading.
+
+See the [migration guide](docs/FIREBASE_EDGE_SERVER.md#migrating-from-manual-provider-credentials).
+
+### Fixed
+
+- Preserve the requested billing project on notification and channel references
+  returned by Storage bucket methods.
+
+- Commit transactions containing only mutation pipelines, without allowing reads
+  after those mutations.
+- Prevent historical `File.get()` requests from auto-creating live objects.
+- Copy Buffer-backed inputs when constructing Firestore `Bytes` values.
+- Stop bucket stream pagination when cancellation happens during a page request.
+
+- Isolate Auth and Firestore token caches by service account and expire tokens
+  before their OAuth lifetime ends. Cache entries expire at the exact TTL boundary.
+- Return malformed Auth token inputs as error results and omit custom tokens
+  from error context.
+- Keep Storage ACL and IAM setup/validation failures inside `{ error, data }`.
+- Declare `jose` as a runtime dependency so clean production installs can load
+  the package.
+- Exclude tests from the published build while retaining full test and validation
+  type-checking in CI.
+
 ## 1.1.1
 
 ### Patch Changes

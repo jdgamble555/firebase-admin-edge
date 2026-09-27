@@ -1,5 +1,22 @@
 import type { FirebaseRestError } from './firebase-types.js';
-import { FirebaseEdgeError, FirebaseEndpointErrorInfo } from './errors.js';
+import {
+    ensureError,
+    FirebaseEdgeError,
+    FirebaseEndpointErrorInfo
+} from './errors.js';
+
+/** Normalize an admin REST failure while retaining existing Error instances. @internal */
+export function normalizeAdminEndpointError(error: unknown): Error {
+    if (
+        typeof error !== 'object' ||
+        error === null ||
+        !('error' in error) ||
+        !error.error
+    )
+        return ensureError(error);
+
+    return mapFirebaseError(error.error as FirebaseRestError['error']);
+}
 
 /**
  * Maps Firebase REST API errors to structured FirebaseEdgeError instances.
@@ -16,6 +33,17 @@ export function mapFirebaseError(
     firebaseError: FirebaseRestError['error']
 ): FirebaseEdgeError {
     const { code, message, errors } = firebaseError;
+
+    if (message?.includes('EXPIRED_OOB_CODE'))
+        return new FirebaseEdgeError({
+            code: 'auth/expired-action-code',
+            message: 'This email link has expired. Request a new one.'
+        });
+    if (message?.includes('INVALID_OOB_CODE'))
+        return new FirebaseEdgeError({
+            code: 'auth/invalid-action-code',
+            message: 'This email link is invalid or has already been used.'
+        });
 
     // First, check for specific Firebase error codes in the message field
     const firebaseErrorCode = message?.toUpperCase?.() || '';

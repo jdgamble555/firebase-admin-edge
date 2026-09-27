@@ -2,6 +2,29 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { restFetch } from './rest-fetch.js';
 
 describe('restFetch', () => {
+    it.each(['PATCH', 'DELETE'] as const)(
+        'supports %s requests for configuration resources',
+        async (method) => {
+            const fetchFn = vi.fn().mockResolvedValue(
+                new Response('{}', {
+                    headers: { 'content-type': 'application/json' }
+                })
+            );
+            const result = await restFetch('https://example.com/config', {
+                method,
+                global: { fetch: fetchFn },
+                ...(method === 'PATCH' && { body: { enabled: false } })
+            });
+            expect(result.error).toBeNull();
+            expect(fetchFn).toHaveBeenCalledWith(
+                'https://example.com/config',
+                expect.objectContaining({
+                    method,
+                    body: method === 'PATCH' ? '{"enabled":false}' : undefined
+                })
+            );
+        }
+    );
     let mockFetch: ReturnType<typeof vi.fn<typeof fetch>>;
 
     beforeEach(() => {

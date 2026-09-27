@@ -44,8 +44,11 @@ export type FirebaseIdpSignInResponse = {
     oauthIdToken?: string;
     oauthAccessToken?: string;
     oauthTokenSecret?: string;
+    nonce?: string;
+    errorMessage?: string;
 
     needConfirmation?: boolean;
+    pendingToken?: string;
     verifiedProvider?: string[];
 };
 

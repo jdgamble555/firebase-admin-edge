@@ -1,6 +1,39 @@
 import { describe, it, expect } from 'vitest';
-import { mapFirebaseError } from './auth-endpoint-errors.js';
+import {
+    mapFirebaseError,
+    normalizeAdminEndpointError
+} from './auth-endpoint-errors.js';
 import { FirebaseEdgeError, FirebaseEndpointErrorInfo } from './errors.js';
+
+describe('normalizeAdminEndpointError', () => {
+    it('maps Firebase REST envelopes using the existing error mapper', () => {
+        const error = normalizeAdminEndpointError({
+            error: { code: 400, message: 'USER_NOT_FOUND' }
+        });
+        expect(error).toBeInstanceOf(FirebaseEdgeError);
+        expect(error).toMatchObject({
+            code: FirebaseEndpointErrorInfo.ENDPOINT_USER_NOT_FOUND.code
+        });
+    });
+
+    it.each([
+        new Error('Network failure'),
+        new FirebaseEdgeError(FirebaseEndpointErrorInfo.ENDPOINT_UNAUTHORIZED)
+    ])('preserves the original Error instance: %s', (original) => {
+        expect(normalizeAdminEndpointError(original)).toBe(original);
+    });
+
+    it.each(['Service unavailable', {}, { error: null }, null, undefined, 42])(
+        'retains the fallback message for an unstructured failure: %j',
+        (value) => {
+            const error = normalizeAdminEndpointError(value);
+            expect(error).toBeInstanceOf(Error);
+            expect(error.message).toBe(
+                `This value was thrown as is, not through an Error: ${JSON.stringify(value)}`
+            );
+        }
+    );
+});
 
 describe('mapFirebaseError', () => {
     describe('Token Errors', () => {
@@ -575,4 +608,11 @@ describe('mapFirebaseError', () => {
             );
         });
     });
+});
+
+it.each([
+    ['EXPIRED_OOB_CODE', 'auth/expired-action-code'],
+    ['INVALID_OOB_CODE', 'auth/invalid-action-code']
+])('maps email action error %s', (message, code) => {
+    expect(mapFirebaseError({ code: 400, message: message! }).code).toBe(code);
 });

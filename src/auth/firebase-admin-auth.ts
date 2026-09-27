@@ -1,4 +1,6 @@
 import {
+    createAuthEmulatorFetch,
+    manageAuthConfig,
     generateEmailActionLink,
     deleteAccountsAdmin,
     importAccountsAdmin,
@@ -12,10 +14,34 @@ import {
     revokeRefreshTokens
 } from './firebase-auth-endpoints.js';
 import {
+    resolveAuthEmulatorHost,
+    type AuthEmulatorOptions
+} from './auth-emulator.js';
+export type { AuthEmulatorOptions } from './auth-emulator.js';
+import { buildAuthConfigRequest, validateTenantId } from './auth-config.js';
+import { ProjectConfigManager } from './project-config-manager.js';
+import { TenantManager } from './tenant-manager.js';
+import type {
+    AuthConfigOperation,
+    AuthProviderConfig,
+    UpdateAuthProviderRequest,
+    AuthProviderConfigFilter,
+    ListProviderConfigResults
+} from './auth-config-types.js';
+export type * from './auth-config-types.js';
+export { ProjectConfigManager } from './project-config-manager.js';
+export { TenantManager } from './tenant-manager.js';
+import {
+    verifyAuthBlockingJWT,
     signJWTCustomToken,
     verifyJWT,
     verifySessionJWT
 } from './firebase-jwt.js';
+import type { DecodedAuthBlockingToken } from './auth-blocking-types.js';
+export type {
+    DecodedAuthBlockingToken,
+    DecodedAuthBlockingUserRecord
+} from './auth-blocking-types.js';
 import type { GoogleTokenResponse, ServiceAccount } from './firebase-types.js';
 import { getToken, type TokenResults } from './google-oauth.js';
 import {
@@ -101,7 +127,147 @@ export interface SessionCookieOptions {
  * Provides server-side authentication operations using service account credentials.
  */
 export class FirebaseAdminAuth {
+    /** Verify a blocking-event JWT. Audience matching follows the SDK's substring convention. */
+    async _verifyAuthBlockingToken(
+        token: string,
+        audience?: string
+    ): Promise<AdminResult<DecodedAuthBlockingToken>> {
+        const result = await verifyAuthBlockingJWT(
+            token,
+            this.serviceAccountKey.project_id,
+            audience,
+            this.fetch,
+            !!this.emulatorHost
+        );
+        if (result.error) return result;
+        if (this.tenantId && result.data.tenant_id !== this.tenantId)
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_TENANT_ID_INVALID
+                )
+            };
+        return result;
+    }
+    private readonly emulatorHost: string | null;
     private _cacheName = '__cache';
+    private projectManager?: ProjectConfigManager;
+    private tenants?: TenantManager;
+
+    createProviderConfig(
+        config: AuthProviderConfig
+    ): Promise<AdminResult<AuthProviderConfig>> {
+        return this.executeConfig({
+            resource: 'provider',
+            action: 'create',
+            id: config?.providerId,
+            properties: config
+        });
+    }
+
+    getProviderConfig(
+        providerId: string
+    ): Promise<AdminResult<AuthProviderConfig>> {
+        return this.executeConfig({
+            resource: 'provider',
+            action: 'get',
+            id: providerId
+        });
+    }
+
+    updateProviderConfig(
+        providerId: string,
+        config: UpdateAuthProviderRequest
+    ): Promise<AdminResult<AuthProviderConfig>> {
+        return this.executeConfig({
+            resource: 'provider',
+            action: 'update',
+            id: providerId,
+            properties: config
+        });
+    }
+
+    deleteProviderConfig(providerId: string): Promise<AdminResult<void>> {
+        return this.executeConfig({
+            resource: 'provider',
+            action: 'delete',
+            id: providerId
+        });
+    }
+
+    listProviderConfigs(
+        filter: AuthProviderConfigFilter
+    ): Promise<AdminResult<ListProviderConfigResults>> {
+        return this.executeConfig({
+            resource: 'provider',
+            action: 'list',
+            type: filter?.type,
+            maxResults: filter?.maxResults,
+            pageToken: filter?.pageToken
+        });
+    }
+
+    projectConfigManager(): ProjectConfigManager {
+        if (this.projectManager) return this.projectManager;
+        this.projectManager = new ProjectConfigManager(
+            this.executeConfig.bind(this)
+        );
+        return this.projectManager;
+    }
+
+    tenantManager(): TenantManager {
+        if (this.tenants) return this.tenants;
+        this.tenants = new TenantManager(
+            this.executeConfig.bind(this),
+            (tenantId) =>
+                new FirebaseAdminAuth(
+                    this.serviceAccountKey,
+                    tenantId,
+                    this.fetch,
+                    this.cache,
+                    this._cacheName,
+                    { emulatorHost: this.emulatorHost }
+                )
+        );
+        return this.tenants;
+    }
+
+    private async executeConfig<T>(
+        operation: AuthConfigOperation
+    ): Promise<AdminResult<T>> {
+        try {
+            buildAuthConfigRequest(operation);
+            const { data: token, error } = await this.getCachedToken();
+            if (error) return { data: null, error };
+            if (!token?.access_token)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            return await manageAuthConfig<T>(
+                this.serviceAccountKey.project_id,
+                operation,
+                token.access_token,
+                this.fetch,
+                this.tenantId
+            );
+        } catch (cause) {
+            if (cause instanceof FirebaseEdgeError)
+                return { data: null, error: cause };
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    {
+                        code: 'auth/configuration-request-failed',
+                        message: 'Authentication configuration request failed.'
+                    },
+                    { cause: ensureError(cause) }
+                )
+            };
+        }
+    }
 
     /**
      * Creates a new Firebase Admin Auth instance.
@@ -111,14 +277,20 @@ export class FirebaseAdminAuth {
      * @param fetch Optional custom fetch implementation
      * @param cache Optional cache implementation for token caching
      * @param cacheName Optional cache key name (defaults to '__cache')
+     * @param options Auth emulator configuration; defaults to FIREBASE_AUTH_EMULATOR_HOST when set.
      */
     constructor(
         private serviceAccountKey: ServiceAccount,
-        private tenantId?: string,
+        readonly tenantId?: string,
         private fetch?: typeof globalThis.fetch,
         private cache?: CacheConfig,
-        private cacheName?: string
+        private cacheName?: string,
+        options: AuthEmulatorOptions = {}
     ) {
+        if (tenantId !== undefined) validateTenantId(tenantId);
+        this.emulatorHost = resolveAuthEmulatorHost(options.emulatorHost);
+        if (this.emulatorHost)
+            this.fetch = createAuthEmulatorFetch(this.emulatorHost, this.fetch);
         this._cacheName = this.cacheName || this._cacheName;
     }
 
@@ -129,10 +301,21 @@ export class FirebaseAdminAuth {
      * @returns Promise with token data and error
      */
     private async getCachedToken(): Promise<TokenResults> {
+        if (this.emulatorHost) {
+            return {
+                data: {
+                    access_token: 'owner',
+                    expires_in: 3600,
+                    token_type: 'Bearer',
+                    scope: '',
+                    id_token: ''
+                },
+                error: null
+            };
+        }
+        const cacheKey = `${this._cacheName}:auth:${this.serviceAccountKey.client_email}`;
         const cachedToken =
-            await this.cache?.getCache<GoogleTokenResponse | null>(
-                this._cacheName
-            );
+            await this.cache?.getCache<GoogleTokenResponse | null>(cacheKey);
 
         if (cachedToken) {
             return {
@@ -147,8 +330,11 @@ export class FirebaseAdminAuth {
         );
 
         if (token && this.cache) {
-            // Google tokens are valid for 1 hour
-            this.cache?.setCache('token', token, 3600);
+            // Cache adapters accept milliseconds. Expire before the OAuth token does.
+            const ttlMs = Math.max(0, (token.expires_in - 60) * 1000);
+            if (Number.isFinite(ttlMs) && ttlMs > 0) {
+                await this.cache.setCache(cacheKey, token, ttlMs);
+            }
         }
 
         if (getTokenError) {
@@ -575,34 +761,48 @@ export class FirebaseAdminAuth {
      * @returns Promise with object containing user data or null, and error if any
      */
     async getUser(uid: string) {
-        const { data: token, error: tokenError } = await this.getCachedToken();
+        return this.lookupUser({ uid });
+    }
 
-        if (tokenError) {
+    private async lookupUser(identifier: { uid: string } | { email: string }) {
+        const validation = buildUsersLookupRequest([identifier]);
+        if (validation.error) return { data: null, error: validation.error };
+        try {
+            const { data: token, error: tokenError } =
+                await this.getCachedToken();
+            if (tokenError) return { data: null, error: tokenError };
+            if (!token?.access_token)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            const result = await getAccountInfo(
+                identifier,
+                token.access_token,
+                this.serviceAccountKey.project_id,
+                this.tenantId,
+                this.fetch
+            );
+            if (result.error) return { data: null, error: result.error };
+            if (!result.data)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_USER_NOT_FOUND
+                    )
+                };
+            return { data: result.data, error: null };
+        } catch (cause) {
             return {
                 data: null,
-                error: tokenError
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_USER_LOOKUP_FAILED,
+                    { cause: ensureError(cause) }
+                )
             };
         }
-
-        const { data, error } = await getAccountInfo(
-            { uid },
-            token!.access_token,
-            this.serviceAccountKey.project_id,
-            this.tenantId,
-            this.fetch
-        );
-
-        if (error) {
-            return {
-                data: null,
-                error
-            };
-        }
-
-        return {
-            data,
-            error: null
-        };
     }
 
     /**
@@ -711,34 +911,7 @@ export class FirebaseAdminAuth {
      * @returns Promise with object containing user data or null, and error if any
      */
     async getUserByEmail(email: string) {
-        const { data: token, error: tokenError } = await this.getCachedToken();
-
-        if (tokenError) {
-            return {
-                data: null,
-                error: tokenError
-            };
-        }
-
-        const { data, error } = await getAccountInfo(
-            { email },
-            token.access_token,
-            this.serviceAccountKey.project_id,
-            this.tenantId,
-            this.fetch
-        );
-
-        if (error) {
-            return {
-                data: null,
-                error
-            };
-        }
-
-        return {
-            data,
-            error: null
-        };
+        return this.lookupUser({ email });
     }
 
     /** Look up a linked provider UID, or a primary email/phone identifier. */
@@ -820,7 +993,8 @@ export class FirebaseAdminAuth {
         const { data: decodedIdToken, error: verifyError } = await verifyJWT(
             idToken,
             this.serviceAccountKey.project_id,
-            this.fetch
+            this.fetch,
+            !!this.emulatorHost
         );
 
         if (verifyError) {
@@ -861,7 +1035,7 @@ export class FirebaseAdminAuth {
             }
         }
 
-        if (!checkRevoked) {
+        if (!checkRevoked && !this.emulatorHost) {
             return {
                 data: decodedIdToken,
                 error: null
@@ -876,7 +1050,10 @@ export class FirebaseAdminAuth {
             return {
                 data: null,
                 error: new FirebaseEdgeError(
-                    FirebaseAdminAuthErrorInfo.ADMIN_USER_LOOKUP_FAILED,
+                    userError.code ===
+                    FirebaseAdminAuthErrorInfo.ADMIN_USER_NOT_FOUND.code
+                        ? FirebaseAdminAuthErrorInfo.ADMIN_USER_RECORD_NOT_FOUND
+                        : FirebaseAdminAuthErrorInfo.ADMIN_USER_LOOKUP_FAILED,
                     { cause: ensureError(userError) }
                 )
             };
@@ -1124,7 +1301,8 @@ export class FirebaseAdminAuth {
         const { data, error } = await verifySessionJWT(
             sessionCookie,
             this.serviceAccountKey.project_id,
-            this.fetch
+            this.fetch,
+            !!this.emulatorHost
         );
 
         if (error) {
@@ -1165,7 +1343,7 @@ export class FirebaseAdminAuth {
             }
         }
 
-        if (!checkRevoked) {
+        if (!checkRevoked && !this.emulatorHost) {
             return {
                 data,
                 error: null
@@ -1178,7 +1356,10 @@ export class FirebaseAdminAuth {
             return {
                 data: null,
                 error: new FirebaseEdgeError(
-                    FirebaseAdminAuthErrorInfo.ADMIN_USER_LOOKUP_FAILED,
+                    userError.code ===
+                    FirebaseAdminAuthErrorInfo.ADMIN_USER_NOT_FOUND.code
+                        ? FirebaseAdminAuthErrorInfo.ADMIN_USER_RECORD_NOT_FOUND
+                        : FirebaseAdminAuthErrorInfo.ADMIN_USER_LOOKUP_FAILED,
                     { cause: ensureError(userError) }
                 )
             };
@@ -1221,43 +1402,61 @@ export class FirebaseAdminAuth {
      * @returns Promise with object containing revoke response data or null, and error if any
      */
     async revokeRefreshTokens(uid: string) {
-        const { data: token, error: getTokenError } =
-            await this.getCachedToken();
+        const uidError = validateUserUid(uid);
+        if (uidError) return { data: null, error: uidError };
+        try {
+            const { data: token, error: getTokenError } =
+                await this.getCachedToken();
 
-        if (getTokenError) {
+            if (getTokenError) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED,
+                        { cause: getTokenError }
+                    )
+                };
+            }
+
+            if (!token?.access_token)
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            const { data: revokeData, error: revokeError } =
+                await revokeRefreshTokens(
+                    this.serviceAccountKey.project_id,
+                    uid,
+                    token.access_token,
+                    this.fetch,
+                    this.tenantId
+                );
+
+            if (revokeError || !revokeData) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_REVOKE_TOKENS_FAILED,
+                        { cause: ensureError(revokeError) }
+                    )
+                };
+            }
+
             return {
-                data: null,
-                error: new FirebaseEdgeError(
-                    FirebaseAdminAuthErrorInfo.ADMIN_SERVICE_ACCOUNT_TOKEN_FAILED,
-                    { cause: getTokenError }
-                )
+                data: revokeData,
+                error: null
             };
-        }
-
-        const { data: revokeData, error: revokeError } =
-            await revokeRefreshTokens(
-                this.serviceAccountKey.project_id,
-                uid,
-                token.access_token,
-                this.fetch,
-                this.tenantId
-            );
-
-        if (revokeError) {
-            console.error('Error revoking tokens:', revokeError);
+        } catch (cause) {
             return {
                 data: null,
                 error: new FirebaseEdgeError(
                     FirebaseAdminAuthErrorInfo.ADMIN_REVOKE_TOKENS_FAILED,
-                    { cause: ensureError(revokeError) }
+                    { cause: ensureError(cause) }
                 )
             };
         }
-
-        return {
-            data: revokeData,
-            error: null
-        };
     }
 
     /**
@@ -1268,14 +1467,12 @@ export class FirebaseAdminAuth {
      * @returns Promise with object containing custom token string or null, and error if any
      */
     async createCustomToken(uid: string, developerClaims: object = {}) {
-        const claims = this.tenantId
-            ? { ...developerClaims, tenant_id: this.tenantId }
-            : developerClaims;
-
         const { data, error } = await signJWTCustomToken(
             uid,
             this.serviceAccountKey,
-            claims
+            developerClaims,
+            this.tenantId,
+            !!this.emulatorHost
         );
 
         if (error) {

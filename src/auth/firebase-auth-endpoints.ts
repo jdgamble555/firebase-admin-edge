@@ -1,3 +1,10 @@
+import {
+    providerCredentialBody,
+    resolveProviderId,
+    type ProviderCredential,
+    type ProviderAuthorizationOptions,
+    type ProviderCallback
+} from './provider-credential.js';
 import type {
     FirebaseCreateAuthUriResponse,
     FirebaseIdpSignInResponse,
@@ -8,15 +15,196 @@ import type {
     UserInfo
 } from './firebase-types.js';
 import { restFetch } from '../rest-fetch.js';
+import { resolveAuthEmulatorHost } from './auth-emulator.js';
+
 import type { JsonWebKey } from 'crypto';
-import { mapFirebaseError } from './auth-endpoint-errors.js';
-import type { FirebaseEdgeError } from './errors.js';
-import { ensureError } from './errors.js';
+import {
+    mapFirebaseError,
+    normalizeAdminEndpointError
+} from './auth-endpoint-errors.js';
+import { FirebaseEdgeError, ensureError } from './errors.js';
 import type { ListUsersResponse } from './user-record.js';
 import type { UsersLookupRequest } from './user-request.js';
 import type { BatchUserError } from './user-batch.js';
 import type { PreparedUserImport } from './user-import.js';
-import type { EmailActionRequest } from './email-action-request.js';
+import {
+    buildEmailActionRequest,
+    type EmailActionRequest
+} from './email-action-request.js';
+import type {
+    AuthConfigOperation,
+    AuthConfigResult
+} from './auth-config-types.js';
+import {
+    buildAuthConfigRequest,
+    configUpdateMask,
+    parseAuthConfigResponse
+} from './auth-config.js';
+
+/** Route Auth REST requests to an explicitly configured emulator. Other services keep their original URLs. @internal */
+export function createAuthEmulatorFetch(
+    host: string,
+    fetchFn: typeof globalThis.fetch = globalThis.fetch
+): typeof globalThis.fetch {
+    const emulatorHost = resolveAuthEmulatorHost(host);
+    if (!emulatorHost) throw new Error('An auth emulator host is required.');
+    return (input, init) => {
+        const url = new URL(
+            input instanceof Request ? input.url : String(input)
+        );
+        if (
+            ![
+                'identitytoolkit.googleapis.com',
+                'securetoken.googleapis.com'
+            ].includes(url.hostname)
+        )
+            return fetchFn(input, init);
+        const target = `http://${emulatorHost}/${url.hostname}${url.pathname}${url.search}`;
+        const headers = new Headers(
+            init?.headers ??
+                (input instanceof Request ? input.headers : undefined)
+        );
+        if (headers.has('Authorization'))
+            headers.set('Authorization', 'Bearer owner');
+        if (input instanceof Request)
+            return fetchFn(new Request(target, input), { ...init, headers });
+        return fetchFn(target, { ...init, headers });
+    };
+}
+
+/** Execute a configuration operation using the Identity Platform v2 API. @internal */
+export async function manageAuthConfig<T>(
+    projectId: string,
+    operation: AuthConfigOperation,
+    token: string,
+    fetchFn?: typeof globalThis.fetch,
+    tenantId?: string
+): Promise<AuthConfigResult<T>> {
+    try {
+        const body = buildAuthConfigRequest(operation);
+        const { resource, action, id } = operation;
+        const providerType =
+            operation.type ?? (id?.startsWith('oidc.') ? 'oidc' : 'saml');
+        const collection =
+            resource === 'project'
+                ? 'config'
+                : resource === 'tenant'
+                  ? 'tenants'
+                  : providerType === 'oidc'
+                    ? 'oauthIdpConfigs'
+                    : 'inboundSamlConfigs';
+        const parent = createAdminIdentityURL(
+            projectId,
+            '',
+            false,
+            resource === 'provider' ? tenantId : undefined,
+            'v2'
+        );
+        const suffix =
+            action !== 'create' && action !== 'list' && resource !== 'project'
+                ? `/${encodeURIComponent(id!)}`
+                : '';
+        const params: Record<string, string> = {};
+        if (action === 'create' && resource === 'provider')
+            params[
+                providerType === 'oidc'
+                    ? 'oauthIdpConfigId'
+                    : 'inboundSamlConfigId'
+            ] = id!;
+        if (action === 'update')
+            params.updateMask = configUpdateMask(body!).join(',');
+        if (action === 'list') {
+            params.pageSize = String(
+                operation.maxResults ?? (resource === 'tenant' ? 1000 : 100)
+            );
+            if (operation.pageToken !== undefined)
+                params.pageToken = operation.pageToken;
+        }
+        const method =
+            action === 'create'
+                ? 'POST'
+                : action === 'update'
+                  ? 'PATCH'
+                  : action === 'delete'
+                    ? 'DELETE'
+                    : 'GET';
+        const result = await restFetch<unknown, FirebaseRestError>(
+            `${parent}/${collection}${suffix}`,
+            {
+                method,
+                ...(body !== undefined && { body }),
+                params,
+                bearerToken: token,
+                global: { fetch: fetchFn }
+            }
+        );
+        if (result.error) {
+            const apiError =
+                typeof result.error === 'object'
+                    ? result.error.error
+                    : undefined;
+            if (
+                apiError &&
+                (apiError.code === 404 ||
+                    /CONFIGURATION_NOT_FOUND|TENANT_NOT_FOUND/.test(
+                        apiError.message
+                    ))
+            )
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError({
+                        code:
+                            resource === 'tenant'
+                                ? 'auth/tenant-not-found'
+                                : 'auth/configuration-not-found',
+                        message:
+                            'The requested authentication configuration was not found.'
+                    })
+                };
+            if (
+                apiError &&
+                (apiError.code === 409 ||
+                    /CONFIGURATION_EXISTS|TENANT_EXISTS/.test(apiError.message))
+            )
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError({
+                        code: 'auth/configuration-exists',
+                        message:
+                            'The authentication configuration already exists.'
+                    })
+                };
+            const error =
+                typeof result.error === 'object' && result.error.error
+                    ? mapFirebaseError(result.error.error)
+                    : new FirebaseEdgeError(
+                          {
+                              code: 'auth/configuration-request-failed',
+                              message: 'Configuration endpoint failed.'
+                          },
+                          { cause: ensureError(result.error) }
+                      );
+            return { data: null, error };
+        }
+        return {
+            data: parseAuthConfigResponse(operation, result.data) as T,
+            error: null
+        };
+    } catch (cause) {
+        if (cause instanceof FirebaseEdgeError)
+            return { data: null, error: cause };
+        return {
+            data: null,
+            error: new FirebaseEdgeError(
+                {
+                    code: 'auth/configuration-request-failed',
+                    message: 'Configuration endpoint failed.'
+                },
+                { cause: ensureError(cause) }
+            )
+        };
+    }
+}
 
 /** Generate an email action link without sending an email. */
 export async function generateEmailActionLink(
@@ -37,10 +225,7 @@ export async function generateEmailActionLink(
     if (error)
         return {
             data: null,
-            error:
-                typeof error === 'object' && error.error
-                    ? mapFirebaseError(error.error)
-                    : ensureError(error)
+            error: normalizeAdminEndpointError(error)
         };
     if (typeof data?.oobLink !== 'string' || !data.oobLink.length)
         return {
@@ -75,10 +260,7 @@ export async function deleteAccountsAdmin(
     if (error)
         return {
             data: null,
-            error:
-                typeof error === 'object' && error.error
-                    ? mapFirebaseError(error.error)
-                    : ensureError(error)
+            error: normalizeAdminEndpointError(error)
         };
     return { data, error: null };
 }
@@ -108,10 +290,7 @@ export async function importAccountsAdmin(
     if (error)
         return {
             data: null,
-            error:
-                typeof error === 'object' && error.error
-                    ? mapFirebaseError(error.error)
-                    : ensureError(error)
+            error: normalizeAdminEndpointError(error)
         };
     return { data, error: null };
 }
@@ -136,10 +315,7 @@ export async function getAccountsInfo(
     if (error)
         return {
             data: null,
-            error:
-                typeof error === 'object' && error.error
-                    ? mapFirebaseError(error.error)
-                    : ensureError(error)
+            error: normalizeAdminEndpointError(error)
         };
     return { data, error: null };
 }
@@ -155,14 +331,15 @@ function createAdminIdentityURL(
     project_id: string,
     name: string,
     accounts = true,
-    tenantId?: string
+    tenantId?: string,
+    version = 'v1'
 ) {
     const action = name ? `:${name}` : '';
     if (tenantId) {
         // Use Identity Platform API for tenant-specific operations
-        return `https://identitytoolkit.googleapis.com/v1/projects/${project_id}/tenants/${tenantId}${accounts ? '/accounts' : ''}${action}`;
+        return `https://identitytoolkit.googleapis.com/${version}/projects/${encodeURIComponent(project_id)}/tenants/${encodeURIComponent(tenantId)}${accounts ? '/accounts' : ''}${action}`;
     }
-    return `https://identitytoolkit.googleapis.com/v1/projects/${project_id}${accounts ? '/accounts' : ''}${action}`;
+    return `https://identitytoolkit.googleapis.com/${version}/projects/${encodeURIComponent(project_id)}${accounts ? '/accounts' : ''}${action}`;
 }
 
 /**
@@ -222,13 +399,25 @@ export async function createAuthUri(
     redirect_uri: string,
     key: string,
     tenantId?: string,
-    fetchFn?: typeof globalThis.fetch
+    fetchFn?: typeof globalThis.fetch,
+    providerId = 'google.com',
+    options: ProviderAuthorizationOptions = {}
 ) {
     const url = createIdentityURL('createAuthUri');
+    const resolvedProviderId = resolveProviderId(providerId);
 
     const body = {
         continueUri: redirect_uri,
-        providerId: 'google.com' as const,
+        providerId: resolvedProviderId,
+        ...(resolvedProviderId === 'google.com' && {
+            authFlowType: 'CODE_FLOW'
+        }),
+        ...(options.addScopes?.length && {
+            oauthScope: options.addScopes.join(' ')
+        }),
+        ...(options.customParameters && {
+            customParameter: options.customParameters
+        }),
         ...(tenantId && { tenantId })
     };
 
@@ -260,46 +449,94 @@ export async function createAuthUri(
  * @param fetchFn Optional fetch implementation.
  */
 export async function signInWithIdp(
-    providerIdToken: string,
+    providerIdToken: string | ProviderCredential,
     requestUri: string,
     providerId = 'google.com',
     key: string,
     tenantId?: string,
     fetchFn?: typeof globalThis.fetch
 ) {
-    const url = createIdentityURL('signInWithIdp');
+    return executeProviderSignIn(
+        { credential: providerIdToken, providerId, requestUri },
+        key,
+        tenantId,
+        fetchFn
+    );
+}
 
-    const tokenField =
-        providerId === 'github.com' ? 'access_token' : 'id_token';
+type ProviderSignInRequest = { idToken?: string } & (
+    | {
+          credential: string | ProviderCredential;
+          providerId: string;
+          requestUri: string;
+          callback?: never;
+      }
+    | { callback: ProviderCallback; credential?: never }
+);
 
-    const postBody = new URLSearchParams({
-        [tokenField]: providerIdToken,
-        providerId
-    }).toString();
-
+/** Shared credential, callback, and linking transport. @internal */
+export async function executeProviderSignIn(
+    request: ProviderSignInRequest,
+    key: string,
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+): Promise<{
+    data: FirebaseIdpSignInResponse | null;
+    error: FirebaseEdgeError | null;
+}> {
+    const { callback, idToken } = request;
+    if (
+        callback &&
+        (!callback.requestUri ||
+            (!callback.sessionId && !callback.pendingToken))
+    )
+        throw new FirebaseEdgeError({
+            code: 'auth/invalid-credential',
+            message:
+                'Callback URL and session ID or pending token are required.'
+        });
     const body = {
-        postBody,
-        requestUri,
+        ...(callback
+            ? {
+                  requestUri: callback.requestUri,
+                  ...(callback.pendingToken
+                      ? { pendingToken: callback.pendingToken }
+                      : {
+                            postBody: callback.postBody,
+                            sessionId: callback.sessionId
+                        })
+              }
+            : {
+                  postBody: providerCredentialBody(
+                      request.credential,
+                      request.providerId
+                  ),
+                  requestUri: request.requestUri
+              }),
+        ...(idToken && { idToken }),
         returnSecureToken: true as const,
         returnIdpCredential: true as const,
         ...(tenantId && { tenantId })
     };
-
     const { data, error } = await restFetch<
         FirebaseIdpSignInResponse,
         FirebaseRestError
-    >(url, {
+    >(createIdentityURL('signInWithIdp'), {
         global: { fetch: fetchFn },
         body,
-        params: {
-            key
-        }
+        params: { key }
     });
-
-    return {
-        data,
-        error: error ? mapFirebaseError(error.error) : null
-    };
+    if (error) return { data: null, error: mapFirebaseError(error.error) };
+    if (data?.errorMessage) {
+        // Retain the returned credential for the server's opt-in auto-link flow.
+        if (data.errorMessage === 'EMAIL_EXISTS' && !idToken)
+            return { data: { ...data, needConfirmation: true }, error: null };
+        return {
+            data: null,
+            error: mapFirebaseError({ code: 400, message: data.errorMessage })
+        };
+    }
+    return { data, error: null };
 }
 
 /**
@@ -420,10 +657,7 @@ export async function downloadAccount(
     if (error) {
         return {
             data: null,
-            error:
-                typeof error === 'object' && error.error
-                    ? mapFirebaseError(error.error)
-                    : ensureError(error)
+            error: normalizeAdminEndpointError(error)
         };
     }
 
@@ -552,10 +786,36 @@ export async function sendOobCode(
 ): Promise<{ data: { email: string } | null; error: FirebaseEdgeError | null }>;
 
 export async function sendOobCode(
-    requestType: 'PASSWORD_RESET' | 'VERIFY_EMAIL',
+    requestType: 'EMAIL_SIGNIN',
+    key: string,
+    options: { email: string; continueUrl: string; locale?: string },
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+): Promise<{ data: { email: string } | null; error: FirebaseEdgeError | null }>;
+
+export async function sendOobCode(
+    requestType: 'VERIFY_AND_CHANGE_EMAIL',
+    key: string,
+    options: {
+        idToken: string;
+        newEmail: string;
+        continueUrl?: string;
+        locale?: string;
+    },
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+): Promise<{ data: { email: string } | null; error: FirebaseEdgeError | null }>;
+
+export async function sendOobCode(
+    requestType:
+        | 'PASSWORD_RESET'
+        | 'VERIFY_EMAIL'
+        | 'EMAIL_SIGNIN'
+        | 'VERIFY_AND_CHANGE_EMAIL',
     key: string,
     options: {
         email?: string;
+        newEmail?: string;
         idToken?: string;
         locale?: string;
         continueUrl?: string;
@@ -563,12 +823,50 @@ export async function sendOobCode(
     tenantId?: string,
     fetchFn?: typeof globalThis.fetch
 ) {
+    if (
+        requestType === 'PASSWORD_RESET' ||
+        requestType === 'VERIFY_AND_CHANGE_EMAIL'
+    ) {
+        const validated = buildEmailActionRequest(
+            'PASSWORD_RESET',
+            requestType === 'PASSWORD_RESET'
+                ? (options.email ?? '')
+                : (options.newEmail ?? ''),
+            options.continueUrl === undefined
+                ? undefined
+                : { url: options.continueUrl }
+        );
+        if (validated.error) return { data: null, error: validated.error };
+        if (
+            requestType === 'VERIFY_AND_CHANGE_EMAIL' &&
+            !options.idToken?.trim()
+        )
+            return {
+                data: null,
+                error: new FirebaseEdgeError({
+                    code: 'auth/invalid-id-token',
+                    message: 'A signed-in user is required.'
+                })
+            };
+    }
+    if (requestType === 'EMAIL_SIGNIN') {
+        const validated = buildEmailActionRequest(
+            'EMAIL_SIGNIN',
+            options.email ?? '',
+            {
+                url: options.continueUrl ?? '',
+                handleCodeInApp: true
+            }
+        );
+        if (validated.error) return { data: null, error: validated.error };
+    }
     const url = createIdentityURL('sendOobCode');
 
     const body: Record<string, any> = {
         requestType,
-        canHandleCodeInApp: false,
+        canHandleCodeInApp: requestType === 'EMAIL_SIGNIN',
         ...(options.email && { email: options.email }),
+        ...(options.newEmail && { newEmail: options.newEmail }),
         ...(options.idToken && { idToken: options.idToken }),
         ...(options.continueUrl && { continueUrl: options.continueUrl }),
         ...(tenantId && { tenantId })
@@ -654,47 +952,19 @@ export async function signInWithEmailLink(
  */
 export async function linkWithOAuthCredential(
     idToken: string,
-    providerIdToken: string,
+    providerIdToken: string | ProviderCredential,
     requestUri: string,
     providerId: string,
     key: string,
     tenantId?: string,
     fetchFn?: typeof globalThis.fetch
 ) {
-    const url = createIdentityURL('signInWithIdp');
-
-    const tokenField =
-        providerId === 'github.com' ? 'access_token' : 'id_token';
-
-    const postBody = new URLSearchParams({
-        [tokenField]: providerIdToken,
-        providerId
-    }).toString();
-
-    const body = {
-        idToken,
-        postBody,
-        requestUri,
-        returnSecureToken: true as const,
-        returnIdpCredential: true as const,
-        ...(tenantId && { tenantId })
-    };
-
-    const { data, error } = await restFetch<
-        FirebaseIdpSignInResponse,
-        FirebaseRestError
-    >(url, {
-        global: { fetch: fetchFn },
-        body,
-        params: {
-            key
-        }
-    });
-
-    return {
-        data,
-        error: error ? mapFirebaseError(error.error) : null
-    };
+    return executeProviderSignIn(
+        { credential: providerIdToken, providerId, requestUri, idToken },
+        key,
+        tenantId,
+        fetchFn
+    );
 }
 
 /**
@@ -775,10 +1045,7 @@ export async function updateAccountAdmin(
     if (error)
         return {
             data: null,
-            error:
-                typeof error === 'object' && error.error
-                    ? mapFirebaseError(error.error)
-                    : ensureError(error)
+            error: normalizeAdminEndpointError(error)
         };
     return { data, error: null };
 }
@@ -803,10 +1070,7 @@ export async function createAccountAdmin(
     if (error)
         return {
             data: null,
-            error:
-                typeof error === 'object' && error.error
-                    ? mapFirebaseError(error.error)
-                    : ensureError(error)
+            error: normalizeAdminEndpointError(error)
         };
     return { data, error: null };
 }
@@ -827,10 +1091,7 @@ export async function deleteAccountAdmin(
     });
     if (error)
         return {
-            error:
-                typeof error === 'object' && error.error
-                    ? mapFirebaseError(error.error)
-                    : ensureError(error)
+            error: normalizeAdminEndpointError(error)
         };
     return { error: null };
 }
@@ -861,4 +1122,65 @@ export async function revokeRefreshTokens(
         fetchFn,
         tenantId
     );
+}
+
+/** Complete a password reset using the emailed code; Firebase enforces password policy. */
+export async function confirmPasswordReset(
+    oobCode: string,
+    newPassword: string,
+    key: string,
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+) {
+    if (!oobCode?.trim())
+        return {
+            data: null,
+            error: new FirebaseEdgeError({
+                code: 'auth/invalid-action-code',
+                message: 'An action code is required.'
+            })
+        };
+    if (typeof newPassword !== 'string' || !newPassword.length)
+        return {
+            data: null,
+            error: new FirebaseEdgeError({
+                code: 'auth/invalid-password',
+                message: 'A new password is required.'
+            })
+        };
+    const { data, error } = await restFetch<
+        { email: string },
+        FirebaseRestError
+    >(createIdentityURL('resetPassword'), {
+        global: { fetch: fetchFn },
+        params: { key },
+        body: { oobCode, newPassword, ...(tenantId && { tenantId }) }
+    });
+    return { data, error: error ? mapFirebaseError(error.error) : null };
+}
+
+/** Apply an emailed verification, email-change, or email-recovery code. */
+export async function applyActionCode(
+    oobCode: string,
+    key: string,
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+) {
+    if (!oobCode?.trim())
+        return {
+            data: null,
+            error: new FirebaseEdgeError({
+                code: 'auth/invalid-action-code',
+                message: 'An action code is required.'
+            })
+        };
+    const { data, error } = await restFetch<
+        { email?: string; localId?: string },
+        FirebaseRestError
+    >(createIdentityURL('update'), {
+        global: { fetch: fetchFn },
+        params: { key },
+        body: { oobCode, ...(tenantId && { tenantId }) }
+    });
+    return { data, error: error ? mapFirebaseError(error.error) : null };
 }

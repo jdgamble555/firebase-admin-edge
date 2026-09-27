@@ -4,8 +4,10 @@ import {
     jwtVerify,
     importPKCS8,
     SignJWT,
+    UnsecuredJWT,
     importX509,
     importSPKI,
+    type JWTVerifyOptions,
     type JWTPayload
 } from 'jose';
 import {
@@ -23,15 +25,138 @@ import type {
 import { getJWKs, getPublicKeys } from './firebase-auth-endpoints.js';
 import { FirebaseEdgeError, ensureError } from './errors.js';
 import { JWTErrorInfo } from './auth-error-codes.js';
+import { validateUserUid } from './user-request.js';
+import type { DecodedAuthBlockingToken } from './auth-blocking-types.js';
+
+/** Shared Secure Token signature verification for ID and blocking-event JWTs. */
+async function verifySecureTokenJWT(
+    token: string,
+    options: JWTVerifyOptions,
+    fetchFn?: typeof globalThis.fetch
+): Promise<JWTPayload> {
+    const { kid, alg } = decodeProtectedHeader(token);
+    if (typeof kid !== 'string' || !kid)
+        throw new FirebaseEdgeError(JWTErrorInfo.JWT_NO_KID_FOUND);
+    if (alg !== 'RS256')
+        throw new FirebaseEdgeError(JWTErrorInfo.JWT_INVALID_ALGORITHM);
+    const { data, error } = await getJWKs(fetchFn);
+    if (error) throw error;
+    if (!data?.length)
+        throw new FirebaseEdgeError(JWTErrorInfo.JWT_NO_JWKS_RETRIEVED);
+    const jwk = data.find((key) => key.kid === kid);
+    if (!jwk)
+        throw new FirebaseEdgeError(JWTErrorInfo.JWT_NO_MATCHING_KEY, {
+            context: { kid }
+        });
+    const { payload } = await jwtVerify(token, jwk, {
+        ...options,
+        algorithms: ['RS256']
+    });
+    return payload;
+}
+
+/** @internal Verify the JWT supplied in a blocking function request's data.jwt field. */
+export async function verifyAuthBlockingJWT(
+    token: string,
+    projectId: string,
+    audience?: string,
+    fetchFn?: typeof globalThis.fetch,
+    emulator = false
+): Promise<
+    | { data: DecodedAuthBlockingToken; error: null }
+    | { data: null; error: FirebaseEdgeError }
+> {
+    try {
+        if (
+            typeof token !== 'string' ||
+            !token.length ||
+            typeof projectId !== 'string' ||
+            !projectId.length ||
+            (audience !== undefined &&
+                (typeof audience !== 'string' || !audience.trim().length))
+        )
+            throw new FirebaseEdgeError({
+                code: 'auth/invalid-argument',
+                message:
+                    'A token, project ID, and non-empty audience (when supplied) are required.'
+            });
+        const options = {
+            issuer: `https://securetoken.google.com/${projectId}`,
+            requiredClaims: ['iat', 'exp']
+        };
+        const payload = emulator
+            ? UnsecuredJWT.decode(token, options).payload
+            : await verifySecureTokenJWT(token, options, fetchFn);
+        const expectedAudience = audience ?? `${projectId}.cloudfunctions.net/`;
+        if (
+            typeof payload.aud !== 'string' ||
+            !payload.aud.includes(expectedAudience)
+        )
+            throw new JWTClaimValidationFailed(
+                'Invalid blocking token audience.',
+                payload
+            );
+        if (
+            typeof payload.iat !== 'number' ||
+            !Number.isFinite(payload.iat) ||
+            payload.iat > Math.floor(Date.now() / 1000) ||
+            typeof payload.event_type !== 'string' ||
+            !payload.event_type.length ||
+            typeof payload.event_id !== 'string' ||
+            !payload.event_id.length
+        )
+            throw new JWTClaimValidationFailed(
+                'Invalid blocking event claims.',
+                payload
+            );
+        const noUserEvent =
+            payload.event_type === 'beforeSendEmail' ||
+            payload.event_type === 'beforeSendSms';
+        if (
+            !noUserEvent &&
+            (typeof payload.sub !== 'string' ||
+                !payload.sub.length ||
+                payload.sub.length > 128)
+        )
+            throw new JWTClaimValidationFailed(
+                'Invalid blocking token subject.',
+                payload
+            );
+        return {
+            data: { ...payload, uid: payload.sub } as DecodedAuthBlockingToken,
+            error: null
+        };
+    } catch (cause) {
+        if (cause instanceof FirebaseEdgeError)
+            return { data: null, error: cause };
+        const info =
+            cause instanceof JWTExpired
+                ? {
+                      code: 'auth/auth-blocking-token-expired',
+                      message: 'The Auth blocking token has expired.'
+                  }
+                : cause instanceof JWTClaimValidationFailed
+                  ? JWTErrorInfo.JWT_CLAIM_VALIDATION_FAILED
+                  : cause instanceof JWTInvalid ||
+                      cause instanceof JWSInvalid ||
+                      cause instanceof JWSSignatureVerificationFailed
+                    ? JWTErrorInfo.JWT_INVALID_TOKEN
+                    : JWTErrorInfo.JWT_UNKNOWN_VERIFICATION_ERROR;
+        return {
+            data: null,
+            error: new FirebaseEdgeError(info, { cause: ensureError(cause) })
+        };
+    }
+}
 
 const ALGORITHM_RS256 = 'RS256' as const;
 
 const OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
 const SCOPES = [
+    'https://www.googleapis.com/auth/cloud-platform',
     'https://www.googleapis.com/auth/datastore',
     'https://www.googleapis.com/auth/identitytoolkit',
-    'https://www.googleapis.com/auth/devstorage.read_write',
     'https://www.googleapis.com/auth/devstorage.read_write'
 ] as const;
 
@@ -64,12 +189,98 @@ type SignJwtResult =
           error: FirebaseEdgeError;
       };
 
+/** Decode only emulator-format JWTs, retaining claim checks while skipping signature verification. */
+function verifyEmulatorJWT(
+    token: string,
+    projectId: string,
+    kind: 'id' | 'session'
+): FirebaseIdTokenPayload {
+    const issuer =
+        kind === 'id'
+            ? `https://securetoken.google.com/${projectId}`
+            : `https://session.firebase.google.com/${projectId}`;
+    const { payload } = UnsecuredJWT.decode(token, {
+        issuer,
+        audience: projectId,
+        requiredClaims: ['sub', 'iat', 'exp', 'auth_time']
+    });
+    return validateFirebaseTokenPayload(payload, projectId);
+}
+
+// Allow a small difference between Firebase's clock and the verifying server.
+const FUTURE_CLAIM_TOLERANCE_SECONDS = 5;
+
+/** Validate user-token claims in both production and emulator modes. */
+function validateFirebaseTokenPayload(
+    payload: JWTPayload,
+    projectId: string
+): FirebaseIdTokenPayload {
+    const now = Math.floor(Date.now() / 1000);
+    if (
+        typeof payload.exp !== 'number' ||
+        !Number.isFinite(payload.exp) ||
+        payload.exp <= now
+    )
+        throw new JWTClaimValidationFailed(
+            'Firebase token expiration must be in the future.',
+            payload,
+            'exp',
+            'check_failed'
+        );
+    if (payload.aud !== projectId)
+        throw new JWTClaimValidationFailed(
+            'Firebase token audience must match the project ID.',
+            payload,
+            'aud',
+            'check_failed'
+        );
+    if (
+        typeof payload.sub !== 'string' ||
+        !payload.sub.length ||
+        payload.sub.length > 128
+    )
+        throw new JWTClaimValidationFailed(
+            'Firebase token subject must contain between 1 and 128 characters.',
+            payload,
+            'sub',
+            'check_failed'
+        );
+    for (const claim of ['iat', 'auth_time'] as const) {
+        const value = payload[claim];
+        if (
+            typeof value !== 'number' ||
+            !Number.isFinite(value) ||
+            (claim === 'auth_time' && value < 0)
+        )
+            throw new JWTClaimValidationFailed(
+                `Invalid Firebase token ${claim} timestamp.`,
+                payload,
+                claim,
+                'check_failed'
+            );
+        if (value > now + FUTURE_CLAIM_TOLERANCE_SECONDS)
+            throw new JWTClaimValidationFailed(
+                `Firebase token ${claim} is ${value - now} seconds ahead of the server clock (maximum ${FUTURE_CLAIM_TOLERANCE_SECONDS}). Check the server clock synchronization.`,
+                payload,
+                claim,
+                'check_failed'
+            );
+    }
+    return { ...payload, uid: payload.sub } as FirebaseIdTokenPayload;
+}
+
 export async function verifySessionJWT(
     sessionCookie: string,
     projectId: string,
-    fetchFn: typeof globalThis.fetch = globalThis.fetch
+    fetchFn: typeof globalThis.fetch = globalThis.fetch,
+    emulator = false
 ) {
     try {
+        if (emulator)
+            return {
+                data: verifyEmulatorJWT(sessionCookie, projectId, 'session'),
+                error: null
+            };
         const { data: keyData, error } = await getPublicKeys(fetchFn);
 
         if (error) {
@@ -118,12 +329,13 @@ export async function verifySessionJWT(
         const { payload } = await jwtVerify(sessionCookie, publicKey, {
             issuer: expectedIssuer,
             audience: expectedAudience,
-            algorithms: [ALGORITHM_RS256]
+            algorithms: [ALGORITHM_RS256],
+            requiredClaims: ['sub', 'iat', 'exp', 'auth_time']
         });
 
         return {
             error: null,
-            data: payload as FirebaseIdTokenPayload
+            data: validateFirebaseTokenPayload(payload, projectId)
         };
     } catch (err) {
         if (err instanceof JWTExpired) {
@@ -182,58 +394,31 @@ export async function verifySessionJWT(
 export async function verifyJWT(
     idToken: string,
     projectId: string,
-    fetchFn?: typeof globalThis.fetch
+    fetchFn?: typeof globalThis.fetch,
+    emulator = false
 ) {
     try {
-        const { kid } = decodeProtectedHeader(idToken);
-
-        if (!kid) {
+        if (emulator)
             return {
-                error: new FirebaseEdgeError(JWTErrorInfo.JWT_NO_KID_FOUND),
-                data: null
+                data: verifyEmulatorJWT(idToken, projectId, 'id'),
+                error: null
             };
-        }
-
-        const { data, error } = await getJWKs(fetchFn);
-
-        if (error) {
-            return {
-                error,
-                data: null
-            };
-        }
-
-        if (!data || !data.length) {
-            return {
-                error: new FirebaseEdgeError(
-                    JWTErrorInfo.JWT_NO_JWKS_RETRIEVED
-                ),
-                data: null
-            };
-        }
-
-        const jwk = data.find((key: { kid: string }) => key.kid === kid);
-
-        if (!jwk) {
-            return {
-                error: new FirebaseEdgeError(JWTErrorInfo.JWT_NO_MATCHING_KEY, {
-                    context: { kid }
-                }),
-                data: null
-            };
-        }
-
-        const { payload } = await jwtVerify(idToken, jwk, {
-            issuer: `https://securetoken.google.com/${projectId}`,
-            audience: projectId,
-            algorithms: ['RS256']
-        });
+        const payload = await verifySecureTokenJWT(
+            idToken,
+            {
+                issuer: `https://securetoken.google.com/${projectId}`,
+                audience: projectId,
+                requiredClaims: ['sub', 'iat', 'exp', 'auth_time']
+            },
+            fetchFn
+        );
 
         return {
             error: null,
-            data: payload as FirebaseIdTokenPayload
+            data: validateFirebaseTokenPayload(payload, projectId)
         };
     } catch (err) {
+        if (err instanceof FirebaseEdgeError) return { data: null, error: err };
         if (err instanceof JWTExpired) {
             return {
                 error: new FirebaseEdgeError(JWTErrorInfo.JWT_EXPIRED, {
@@ -383,8 +568,25 @@ const RESERVED_CLAIMS = [
 export async function signJWTCustomToken(
     uid: string,
     serviceAccount: ServiceAccount,
-    additionalClaims: object = {}
+    additionalClaims: object = {},
+    tenantId?: string,
+    emulator = false
 ) {
+    const uidError = validateUserUid(uid);
+    if (uidError) return { data: null, error: uidError };
+    if (
+        !additionalClaims ||
+        typeof additionalClaims !== 'object' ||
+        Array.isArray(additionalClaims)
+    )
+        return {
+            data: null,
+            error: new FirebaseEdgeError({
+                code: 'auth/invalid-argument',
+                message: 'Developer claims must be a non-null object.'
+            })
+        };
+
     const { private_key, client_email } = serviceAccount;
 
     if (
@@ -404,6 +606,7 @@ export async function signJWTCustomToken(
     }
 
     const payload: Record<string, unknown> = { uid };
+    if (tenantId) payload.tenant_id = tenantId;
     if (Object.keys(additionalClaims).length) {
         payload.claims = additionalClaims;
     }
@@ -412,7 +615,21 @@ export async function signJWTCustomToken(
         'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit';
 
     try {
-        const key = await importPKCS8(private_key, 'RS256');
+        if (emulator) {
+            const issuer = client_email || 'firebase-auth-emulator@example.com';
+            const token = new UnsecuredJWT(payload)
+                .setIssuer(issuer)
+                .setSubject(issuer)
+                .setAudience(url)
+                .setIssuedAt()
+                .setExpirationTime('1h')
+                .encode();
+            return { data: token, error: null };
+        }
+        const key = await importPKCS8(
+            private_key.replace(/\\n/g, '\n'),
+            'RS256'
+        );
 
         const token = await new SignJWT(payload)
             .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })

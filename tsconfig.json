@@ -26,5 +26,5 @@
         "types": ["node", "vitest/globals"]
     },
     "include": ["src/**/*"],
-    "exclude": ["fae-demo", "dist", "node_modules"]
+    "exclude": ["fae-demo", "dist", "node_modules", "src/**/*.test.ts"]
 }

@@ -1,18 +1,189 @@
 import {
+    type ProviderCredential,
+    type ProviderAuthorizationOptions,
+    type ProviderCallback
+} from './provider-credential.js';
+import {
+    createAuthEmulatorFetch,
+    createAuthUri,
     signInWithCustomToken,
     signInWithIdp,
+    executeProviderSignIn,
     linkWithOAuthCredential,
-    unlinkProvider
+    unlinkProvider,
+    sendOobCode,
+    confirmPasswordReset as resetPassword,
+    applyActionCode as applyEmailCode,
+    signInWithEmailLink as completeEmailLink
 } from './firebase-auth-endpoints.js';
+import {
+    resolveAuthEmulatorHost,
+    type AuthEmulatorOptions
+} from './auth-emulator.js';
 import type { FirebaseConfig } from './firebase-types.js';
 import { FirebaseEdgeError, ensureError } from './errors.js';
 import { FirebaseAuthErrorInfo } from './auth-error-codes.js';
+import { buildEmailActionRequest } from './email-action-request.js';
 
 /**
  * Firebase Client Authentication handler for edge environments.
  * Provides client-side authentication operations using Firebase API.
  */
 export class FirebaseAuth {
+    async sendPasswordResetEmail(
+        email: string,
+        continueUrl = this.requestUri,
+        locale?: string
+    ) {
+        try {
+            return await sendOobCode(
+                'PASSWORD_RESET',
+                this.firebase_config.apiKey,
+                { email, continueUrl, locale },
+                this.tenantId,
+                this.fetch
+            );
+        } catch (cause) {
+            return { data: null, error: ensureError(cause) };
+        }
+    }
+
+    async verifyBeforeUpdateEmail(
+        idToken: string,
+        newEmail: string,
+        continueUrl = this.requestUri,
+        locale?: string
+    ) {
+        try {
+            return await sendOobCode(
+                'VERIFY_AND_CHANGE_EMAIL',
+                this.firebase_config.apiKey,
+                { idToken, newEmail, continueUrl, locale },
+                this.tenantId,
+                this.fetch
+            );
+        } catch (cause) {
+            return { data: null, error: ensureError(cause) };
+        }
+    }
+
+    async confirmPasswordReset(oobCode: string, newPassword: string) {
+        try {
+            return await resetPassword(
+                oobCode,
+                newPassword,
+                this.firebase_config.apiKey,
+                this.tenantId,
+                this.fetch
+            );
+        } catch (cause) {
+            return { data: null, error: ensureError(cause) };
+        }
+    }
+
+    async applyActionCode(oobCode: string) {
+        try {
+            return await applyEmailCode(
+                oobCode,
+                this.firebase_config.apiKey,
+                this.tenantId,
+                this.fetch
+            );
+        } catch (cause) {
+            return { data: null, error: ensureError(cause) };
+        }
+    }
+
+    /** Ask Firebase to deliver a sign-in email. */
+    async sendSignInLinkToEmail(
+        email: string,
+        continueUrl: string,
+        locale?: string
+    ) {
+        try {
+            return await sendOobCode(
+                'EMAIL_SIGNIN',
+                this.firebase_config.apiKey,
+                { email, continueUrl, locale },
+                this.tenantId,
+                this.fetch
+            );
+        } catch (cause) {
+            return { data: null, error: ensureError(cause) };
+        }
+    }
+
+    /** Exchange the email and one-time action code for Firebase tokens. */
+    async signInWithEmailLink(email: string, oobCode: string) {
+        const { error: validationError } = buildEmailActionRequest(
+            'EMAIL_SIGNIN',
+            email,
+            {
+                url: this.requestUri,
+                handleCodeInApp: true
+            }
+        );
+        if (validationError) {
+            return { data: null, error: validationError };
+        }
+        if (typeof oobCode !== 'string' || !oobCode.trim()) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError({
+                    code: 'auth/invalid-action-code',
+                    message: 'An email sign-in code is required.'
+                })
+            };
+        }
+        try {
+            return await completeEmailLink(
+                oobCode,
+                email,
+                this.firebase_config.apiKey,
+                undefined,
+                this.tenantId,
+                this.fetch
+            );
+        } catch (cause) {
+            return { data: null, error: ensureError(cause) };
+        }
+    }
+    /** Begin a Firebase-managed provider flow. Persist sessionId securely for the callback. */
+    async createProviderAuthorization(
+        providerId: string,
+        options?: ProviderAuthorizationOptions
+    ) {
+        try {
+            return await createAuthUri(
+                this.requestUri,
+                this.firebase_config.apiKey,
+                this.tenantId,
+                this.fetch,
+                providerId,
+                options
+            );
+        } catch (cause) {
+            return { data: null, error: ensureError(cause) };
+        }
+    }
+
+    /** Complete a provider callback; idToken links to an existing Firebase account. */
+    async signInWithProviderCallback(
+        callback: ProviderCallback,
+        idToken?: string
+    ) {
+        try {
+            return await executeProviderSignIn(
+                { callback, idToken },
+                this.firebase_config.apiKey,
+                this.tenantId,
+                this.fetch
+            );
+        } catch (cause) {
+            return { data: null, error: ensureError(cause) };
+        }
+    }
+
     /**
      * Creates a new Firebase Auth instance.
      *
@@ -20,13 +191,19 @@ export class FirebaseAuth {
      * @param requestUri OAuth callback URI
      * @param tenantId Optional tenant ID for multi-tenancy
      * @param fetch Optional custom fetch implementation
+     * @param options Auth emulator configuration; defaults to FIREBASE_AUTH_EMULATOR_HOST when set.
      */
     constructor(
         private firebase_config: FirebaseConfig,
         private requestUri: string,
         private tenantId?: string,
-        private fetch?: typeof globalThis.fetch
-    ) {}
+        private fetch?: typeof globalThis.fetch,
+        options: AuthEmulatorOptions = {}
+    ) {
+        const emulatorHost = resolveAuthEmulatorHost(options.emulatorHost);
+        if (emulatorHost)
+            this.fetch = createAuthEmulatorFetch(emulatorHost, this.fetch);
+    }
 
     /**
      * Signs in a user with an OAuth provider token.
@@ -35,7 +212,10 @@ export class FirebaseAuth {
      * @param providerId OAuth provider ID (defaults to 'google.com')
      * @returns Promise with object containing sign-in data or null, and error if any
      */
-    async signInWithProvider(oauthToken: string, providerId = 'google.com') {
+    async signInWithProvider(
+        oauthToken: string | ProviderCredential,
+        providerId = 'google.com'
+    ) {
         try {
             const { data: signInData, error: signInError } =
                 await signInWithIdp(
@@ -97,6 +277,14 @@ export class FirebaseAuth {
      * @returns Promise with object containing sign-in data (idToken, refreshToken, expiresIn) or null, and error if any
      */
     async signInWithCustomToken(customToken: string) {
+        if (typeof customToken !== 'string' || !customToken.trim()) {
+            return {
+                error: new FirebaseEdgeError(
+                    FirebaseAuthErrorInfo.AUTH_INVALID_CUSTOM_TOKEN
+                ),
+                data: null
+            };
+        }
         try {
             const { data: signInData, error: signInError } =
                 await signInWithCustomToken(
@@ -113,10 +301,7 @@ export class FirebaseAuth {
                         FirebaseAuthErrorInfo.AUTH_INVALID_CUSTOM_TOKEN,
                         {
                             cause: ensureError(signInError),
-                            context: {
-                                customToken:
-                                    customToken.substring(0, 20) + '...'
-                            }
+                            context: { operation: 'signInWithCustomToken' }
                         }
                     )
                 };
@@ -145,9 +330,7 @@ export class FirebaseAuth {
                     FirebaseAuthErrorInfo.AUTH_CUSTOM_TOKEN_SIGN_FAILED,
                     {
                         cause: ensureError(err),
-                        context: {
-                            customToken: customToken.substring(0, 20) + '...'
-                        }
+                        context: { operation: 'signInWithCustomToken' }
                     }
                 )
             };
@@ -164,7 +347,7 @@ export class FirebaseAuth {
      */
     async linkWithCredential(
         idToken: string,
-        providerToken: string,
+        providerToken: string | ProviderCredential,
         providerId = 'google.com'
     ) {
         try {

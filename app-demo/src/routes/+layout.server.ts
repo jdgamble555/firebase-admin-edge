@@ -5,13 +5,7 @@ export const load = (async ({ locals: { authServer } }) => {
 	const { data, error: firebaseError } = await authServer.getUser();
 
 	if (firebaseError) {
-		error(400, firebaseError);
-	}
-
-	if (!data) {
-		return {
-			user: null
-		};
+		error(400, firebaseError.message);
 	}
 
 	return {

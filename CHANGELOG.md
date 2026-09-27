@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 2.0.0
+
+### Major Changes
+
+- a883c5f: Full Admin Compatibility
+
 ## Unreleased
 
 ### Added

@@ -154,63 +154,70 @@ export async function checkWebRuntime(): Promise<string[]> {
             client_email: 'runtime@example.com',
             private_key: `-----BEGIN PRIVATE KEY-----\n${pemBody}\n-----END PRIVATE KEY-----`
         } as ServiceAccount,
-        'runtime-bucket',
-        async (_input, init) => {
-            if (init?.method === 'POST') {
-                return new Response(null, {
-                    headers: {
-                        Location:
-                            'https://storage.googleapis.com/upload/storage/v1/b/runtime-bucket/o?upload_id=automated'
-                    }
-                });
-            }
-            if (init?.method === 'PUT') {
-                const range = new Headers(init.headers).get('content-range');
-                if (range?.endsWith('/*') || range?.startsWith('bytes */')) {
+        {
+            bucketName: 'runtime-bucket',
+            fetch: async (_input, init) => {
+                if (init?.method === 'POST') {
                     return new Response(null, {
-                        status: 308,
-                        headers: { Range: 'bytes=0-262143' }
+                        headers: {
+                            Location:
+                                'https://storage.googleapis.com/upload/storage/v1/b/runtime-bucket/o?upload_id=automated'
+                        }
                     });
                 }
-                if (range?.startsWith('bytes 262144-')) {
+                if (init?.method === 'PUT') {
+                    const range = new Headers(init.headers).get(
+                        'content-range'
+                    );
+                    if (
+                        range?.endsWith('/*') ||
+                        range?.startsWith('bytes */')
+                    ) {
+                        return new Response(null, {
+                            status: 308,
+                            headers: { Range: 'bytes=0-262143' }
+                        });
+                    }
+                    if (range?.startsWith('bytes 262144-')) {
+                        return Response.json({
+                            name: 'partial',
+                            bucket: 'runtime-bucket',
+                            generation: '1',
+                            size: '262147',
+                            crc32c: finalPartialChecksum.digest()
+                        });
+                    }
                     return Response.json({
-                        name: 'partial',
+                        name: 'file',
                         bucket: 'runtime-bucket',
                         generation: '1',
-                        size: '262147',
-                        crc32c: finalPartialChecksum.digest()
+                        size: '3',
+                        crc32c: fileChecksum,
+                        md5Hash: fileMd5
                     });
                 }
-                return Response.json({
-                    name: 'file',
-                    bucket: 'runtime-bucket',
-                    generation: '1',
-                    size: '3',
-                    crc32c: fileChecksum,
-                    md5Hash: fileMd5
-                });
-            }
-            storageReads++;
-            if (storageReads === 1) {
-                return new Response(null, { status: 503 });
-            }
-            return new Response(
-                new ReadableStream<Uint8Array>({
-                    start(controller) {
-                        controller.enqueue(new Uint8Array([1, 2, 3]));
-                        controller.close();
-                    }
-                }),
-                {
-                    headers: {
-                        'x-goog-hash': `crc32c=${fileChecksum},md5=${fileMd5}`
-                    }
+                storageReads++;
+                if (storageReads === 1) {
+                    return new Response(null, { status: 503 });
                 }
-            );
-        },
-        {
-            getCache: <T>() => ({ access_token: 'local' }) as T,
-            setCache: () => {}
+                return new Response(
+                    new ReadableStream<Uint8Array>({
+                        start(controller) {
+                            controller.enqueue(new Uint8Array([1, 2, 3]));
+                            controller.close();
+                        }
+                    }),
+                    {
+                        headers: {
+                            'x-goog-hash': `crc32c=${fileChecksum},md5=${fileMd5}`
+                        }
+                    }
+                );
+            },
+            cache: {
+                getCache: <T>() => ({ access_token: 'local' }) as T,
+                setCache: () => {}
+            }
         }
     );
     const { error: signingError, data: signedUrl } = await storage.getSignedUrl(
@@ -433,7 +440,7 @@ export async function checkLiveEdge(
 ): Promise<string[]> {
     if (!account?.project_id || !account.private_key || !account.client_email)
         throw new Error('Missing service-account configuration');
-    const db = new Firestore(account, database);
+    const db = new Firestore(account, { databaseId: database });
     const root = db.doc(`firebase_admin_edge_tests/${crypto.randomUUID()}`);
     try {
         await root

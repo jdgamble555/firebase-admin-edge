@@ -54,8 +54,12 @@ beforeEach(() => {
 });
 
 it('configures the retry transport once per instance', () => {
-    new Storage(account, 'bucket', fetch, undefined, undefined, {
-        maxRetries: 0
+    new Storage(account, {
+        bucketName: 'bucket',
+        fetch,
+        retryOptions: {
+            maxRetries: 0
+        }
     });
     expect(createStorageRetryFetch).toHaveBeenCalledWith(fetch, {
         maxRetries: 0
@@ -64,7 +68,7 @@ it('configures the retry transport once per instance', () => {
 
 it('reuses configured OAuth and fetch for explicitly requested IAM signing', async () => {
     fetch.mockResolvedValue(Response.json({ signedBlob: 'AQID' }));
-    const storage = new Storage(account, 'bucket', fetch);
+    const storage = new Storage(account, { bucketName: 'bucket', fetch });
     const { error, data } = await storage.referenceSignedUrl('file', {
         action: 'read',
         expires: Date.now() + 60000,
@@ -86,7 +90,7 @@ it('reuses configured OAuth and fetch for explicitly requested IAM signing', asy
 });
 
 it('creates bucket and HMAC references without network operations', () => {
-    const storage = new Storage(account, 'bucket', fetch);
+    const storage = new Storage(account, { bucketName: 'bucket', fetch });
     expect(getStorage({ storage })).toBe(storage);
     expect(() => getStorage(undefined as never)).toThrow(/configured/);
     expect(storage.bucket()).toBeInstanceOf(Bucket);
@@ -99,7 +103,7 @@ it('creates bucket and HMAC references without network operations', () => {
 });
 
 it('delegates upload automation and XML signing and coordinates retention locking', async () => {
-    const storage = new Storage(account, 'bucket', fetch);
+    const storage = new Storage(account, { bucketName: 'bucket', fetch });
     const metadata = {
         name: 'file',
         bucket: 'bucket',
@@ -138,7 +142,7 @@ it('delegates upload automation and XML signing and coordinates retention lockin
 });
 
 it('normalizes new helper failures and validates irreversible locks before OAuth', async () => {
-    const storage = new Storage(account, 'bucket', fetch);
+    const storage = new Storage(account, { bucketName: 'bucket', fetch });
     const { error: lockError } = await storage.lockRetentionPolicy('');
     expect(lockError?.code).toBe('storage/invalid-argument');
     expect(getToken).not.toHaveBeenCalled();
@@ -153,7 +157,7 @@ it('normalizes new helper failures and validates irreversible locks before OAuth
 });
 
 it('coordinates every specialized operation through authenticated endpoints', async () => {
-    const storage = new Storage(account, 'bucket', fetch);
+    const storage = new Storage(account, { bucketName: 'bucket', fetch });
     const config = {
         topic: '//pubsub.googleapis.com/projects/project/topics/topic',
         payload_format: 'NONE' as const
@@ -230,7 +234,7 @@ it('coordinates every specialized operation through authenticated endpoints', as
 });
 
 it('validates specialized calls before OAuth and normalizes endpoint failures', async () => {
-    const storage = new Storage(account, 'bucket', fetch);
+    const storage = new Storage(account, { bucketName: 'bucket', fetch });
     const { error: invalid } = await storage.createManagedFolder('invalid');
     expect(invalid?.code).toBe('storage/invalid-argument');
     expect(getToken).not.toHaveBeenCalled();
@@ -247,7 +251,7 @@ it('validates specialized calls before OAuth and normalizes endpoint failures', 
 });
 
 it('coordinates streams, version reads, resumable creation, compose and restore', async () => {
-    const storage = new Storage(account, 'bucket', fetch);
+    const storage = new Storage(account, { bucketName: 'bucket', fetch });
     const response = new Response('stream');
     vi.mocked(storageRequest)
         .mockResolvedValueOnce(response)
@@ -289,7 +293,7 @@ it('coordinates streams, version reads, resumable creation, compose and restore'
 });
 
 it('performs resumable session operations without requiring OAuth or a configured bucket', async () => {
-    const storage = new Storage(account, undefined, fetch);
+    const storage = new Storage(account, { fetch });
     vi.mocked(resumableRequest)
         .mockResolvedValueOnce({ complete: false, nextOffset: 262144 })
         .mockResolvedValueOnce({ complete: false, nextOffset: 262144 })
@@ -341,7 +345,7 @@ it('normalizes session errors', async () => {
 });
 
 it('coordinates every bucket and IAM method', async () => {
-    const storage = new Storage(account, 'bucket', fetch);
+    const storage = new Storage(account, { bucketName: 'bucket', fetch });
     vi.mocked(bucketRequest).mockResolvedValue({
         name: 'bucket',
         metageneration: '1'
@@ -383,7 +387,7 @@ it('coordinates every bucket and IAM method', async () => {
 });
 
 it('validates admin inputs and preserves authentication and endpoint failures', async () => {
-    const storage = new Storage(account, 'bucket');
+    const storage = new Storage(account, { bucketName: 'bucket' });
     const invalid = await storage.updateBucketMetadata({});
     expect(invalid).toMatchObject({
         error: { code: 'storage/invalid-argument' },
@@ -431,7 +435,7 @@ it('deletes batches with bounded concurrency, stable ordering and per-file failu
             return undefined;
         }
     );
-    const storage = new Storage(account, 'bucket');
+    const storage = new Storage(account, { bucketName: 'bucket' });
     const { error, data } = await storage.deleteFiles(
         ['a', { name: 'b', generation: '7' }, 'c', 'missing'],
         { concurrency: 2, ignoreNotFound: true }
@@ -455,7 +459,7 @@ it('deletes batches with bounded concurrency, stable ordering and per-file failu
 });
 
 it('validates an entire batch before deleting anything and supports empty batches', async () => {
-    const storage = new Storage(account, 'bucket');
+    const storage = new Storage(account, { bucketName: 'bucket' });
     for (const targets of [
         ['valid', ''],
         [null],
@@ -490,7 +494,7 @@ it('moves a selected version and never deletes a newer generation', async () => 
         .mockResolvedValueOnce(source)
         .mockResolvedValueOnce(copied)
         .mockResolvedValueOnce(undefined);
-    const { error } = await new Storage(account, 'bucket').move(
+    const { error } = await new Storage(account, { bucketName: 'bucket' }).move(
         'file',
         'copy',
         { sourceGeneration: '7' }
@@ -506,14 +510,18 @@ it('moves a selected version and never deletes a newer generation', async () => 
         name: 'file',
         options: { generation: '7', ifGenerationMatch: '7' }
     });
-    const same = await new Storage(account, 'bucket').move('file', 'file', {
-        sourceGeneration: '7'
-    });
+    const same = await new Storage(account, { bucketName: 'bucket' }).move(
+        'file',
+        'file',
+        {
+            sourceGeneration: '7'
+        }
+    );
     expect(same).toMatchObject({ error: { code: 'storage/invalid-argument' } });
 });
 
 it('coordinates all essential methods and forwards typed results', async () => {
-    const storage = new Storage(account, 'bucket', fetch);
+    const storage = new Storage(account, { bucketName: 'bucket', fetch });
     const metadata = {
         name: 'file',
         bucket: 'bucket',
@@ -570,7 +578,12 @@ it('reuses cached credentials with a separate cache key and expiry margin', asyn
         getCache: vi.fn().mockReturnValueOnce(undefined).mockReturnValue(oauth),
         setCache: vi.fn()
     };
-    const storage = new Storage(account, 'bucket', fetch, cache, 'custom');
+    const storage = new Storage(account, {
+        bucketName: 'bucket',
+        fetch,
+        cache,
+        cacheName: 'custom'
+    });
     await storage.listFiles();
     await storage.listFiles();
     expect(getToken).toHaveBeenCalledTimes(1);
@@ -589,7 +602,11 @@ it.each([0, 60, NaN])(
             data: { ...oauth, expires_in }
         });
         const cache = { getCache: vi.fn(), setCache: vi.fn() };
-        await new Storage(account, 'bucket', fetch, cache).listFiles();
+        await new Storage(account, {
+            bucketName: 'bucket',
+            fetch,
+            cache
+        }).listFiles();
         expect(cache.setCache).not.toHaveBeenCalled();
     }
 );
@@ -600,9 +617,9 @@ it('returns authentication failures without requesting storage', async () => {
         message: 'failed'
     });
     vi.mocked(getToken).mockResolvedValue({ error: failure, data: null });
-    const { error, data } = await new Storage(account, 'bucket').download(
-        'file'
-    );
+    const { error, data } = await new Storage(account, {
+        bucketName: 'bucket'
+    }).download('file');
     expect(error).toBe(failure);
     expect(data).toBeNull();
     expect(storageRequest).not.toHaveBeenCalled();
@@ -616,7 +633,7 @@ it('preserves endpoint errors and normalizes thrown failures', async () => {
     vi.mocked(storageRequest)
         .mockRejectedValueOnce(failure)
         .mockRejectedValueOnce(new Error('offline'));
-    const storage = new Storage(account, 'bucket');
+    const storage = new Storage(account, { bucketName: 'bucket' });
     const { error } = await storage.getMetadata('file');
     expect(error).toBe(failure);
     const { error: networkError, data } = await storage.download('file');
@@ -630,12 +647,11 @@ it('normalizes cache failures', async () => {
         getCache: vi.fn().mockRejectedValue('offline'),
         setCache: vi.fn()
     };
-    const { error } = await new Storage(
-        account,
-        'bucket',
+    const { error } = await new Storage(account, {
+        bucketName: 'bucket',
         fetch,
         cache
-    ).listFiles();
+    }).listFiles();
     expect(error?.code).toBe('storage/internal-error');
     expect(storageRequest).not.toHaveBeenCalled();
 });
@@ -648,7 +664,7 @@ it('allows construction without a bucket but rejects operations before auth', as
 });
 
 it('validates each public operation before authentication', async () => {
-    const storage = new Storage(account, 'bucket');
+    const storage = new Storage(account, { bucketName: 'bucket' });
     const results = await Promise.all([
         storage.upload('', ''),
         storage.download(''),
@@ -670,10 +686,9 @@ it('signs URLs locally without OAuth or storage requests', async () => {
         expiresInSeconds: 60,
         contentType: 'text/plain'
     } as const;
-    const { error, data } = await new Storage(account, 'bucket').getSignedUrl(
-        'file',
-        options
-    );
+    const { error, data } = await new Storage(account, {
+        bucketName: 'bucket'
+    }).getSignedUrl('file', options);
     expect(error).toBeNull();
     expect(data).toBe('https://signed.example/file');
     expect(signStorageUrl).toHaveBeenCalledWith(
@@ -694,10 +709,9 @@ it.each([
     new Error('bad key')
 ])('normalizes signing failures', async (failure) => {
     vi.mocked(signStorageUrl).mockRejectedValue(failure);
-    const { error, data } = await new Storage(account, 'bucket').getSignedUrl(
-        'file',
-        { action: 'read' }
-    );
+    const { error, data } = await new Storage(account, {
+        bucketName: 'bucket'
+    }).getSignedUrl('file', { action: 'read' });
     expect(data).toBeNull();
     expect(error?.code).toBe(
         failure instanceof FirebaseEdgeError
@@ -707,7 +721,7 @@ it.each([
 });
 
 it('coordinates metadata patches and copies', async () => {
-    const storage = new Storage(account, 'bucket', fetch);
+    const storage = new Storage(account, { bucketName: 'bucket', fetch });
     const metadata = {
         name: 'file',
         bucket: 'bucket',
@@ -773,7 +787,7 @@ it('exists returns false only for missing objects and preserves other errors', a
             })
         )
         .mockRejectedValueOnce(denied);
-    const storage = new Storage(account, 'bucket');
+    const storage = new Storage(account, { bucketName: 'bucket' });
     const found = await storage.exists('file');
     const missing = await storage.exists('missing');
     const forbidden = await storage.exists('forbidden');
@@ -806,11 +820,10 @@ it.each([
         .mockResolvedValueOnce(source)
         .mockResolvedValueOnce(copied)
         .mockResolvedValueOnce(undefined);
-    const { error, data } = await new Storage(account, 'bucket', fetch).move(
-        'file',
-        'copy',
-        options
-    );
+    const { error, data } = await new Storage(account, {
+        bucketName: 'bucket',
+        fetch
+    }).move('file', 'copy', options);
     expect(error).toBeNull();
     expect(data).toEqual(copied);
     expect(vi.mocked(storageRequest).mock.calls.map((call) => call[2])).toEqual(
@@ -852,11 +865,9 @@ it('reports partial moves with the surviving destination and original failure', 
         .mockResolvedValueOnce(source)
         .mockResolvedValueOnce(copied)
         .mockRejectedValueOnce(failure);
-    const { error, data } = await new Storage(account, 'bucket').move(
-        'file',
-        'copy',
-        { destinationBucket: 'other' }
-    );
+    const { error, data } = await new Storage(account, {
+        bucketName: 'bucket'
+    }).move('file', 'copy', { destinationBucket: 'other' });
     expect(data).toBeNull();
     expect(error).toMatchObject({
         code: 'storage/move-incomplete',
@@ -889,10 +900,9 @@ it.each(['metadata', 'copy'] as const)(
             });
         }
         vi.mocked(storageRequest).mockRejectedValueOnce(failure);
-        const { error } = await new Storage(account, 'bucket').move(
-            'file',
-            'copy'
-        );
+        const { error } = await new Storage(account, {
+            bucketName: 'bucket'
+        }).move('file', 'copy');
         expect(error).toBe(failure);
         expect(
             vi
@@ -909,7 +919,7 @@ it('rejects a source generation mismatch before copying', async () => {
         generation: '7',
         size: '2'
     });
-    const { error } = await new Storage(account, 'bucket').move(
+    const { error } = await new Storage(account, { bucketName: 'bucket' }).move(
         'file',
         'copy',
         { ifSourceGenerationMatch: '6' }
@@ -919,7 +929,7 @@ it('rejects a source generation mismatch before copying', async () => {
 });
 
 it('validates new operations before authentication, including same-object moves', async () => {
-    const storage = new Storage(account, 'bucket');
+    const storage = new Storage(account, { bucketName: 'bucket' });
     const results = await Promise.all([
         storage.exists(''),
         storage.updateMetadata('file', {}),

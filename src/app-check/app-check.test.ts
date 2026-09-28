@@ -39,7 +39,11 @@ it('creates tokens and reuses cached production credentials', async () => {
         getCache: vi.fn().mockReturnValueOnce(undefined).mockReturnValue(oauth),
         setCache: vi.fn()
     };
-    const appCheck = new AppCheck(account, fetch, cache, 'custom');
+    const appCheck = new AppCheck(account, {
+        fetch,
+        cache,
+        cacheName: 'custom'
+    });
     const { error, data } = await appCheck.createToken('app', {
         ttlMillis: 1800000
     });
@@ -62,7 +66,7 @@ it('creates tokens and reuses cached production credentials', async () => {
     expect(getToken).toHaveBeenCalledWith(account, fetch);
 });
 it('verifies without fetching credentials or consuming by default', async () => {
-    const { error, data } = await new AppCheck(account, fetch).verifyToken(
+    const { error, data } = await new AppCheck(account, { fetch }).verifyToken(
         'token'
     );
     expect(error).toBeNull();
@@ -78,7 +82,7 @@ it.each([
     { limitedUse: true, jti: 'operation-123' },
     { limitedUse: true, jti: '' }
 ])('forwards token exchange options %j', async (options) => {
-    const { error, data } = await new AppCheck(account, fetch).createToken(
+    const { error, data } = await new AppCheck(account, { fetch }).createToken(
         'app',
         {
             ttlMillis: 1800000,
@@ -117,10 +121,9 @@ it.each([
 ])(
     'rejects invalid token options before signing or fetching: %j',
     async (options) => {
-        const { error, data } = await new AppCheck(account, fetch).createToken(
-            'app',
-            options as never
-        );
+        const { error, data } = await new AppCheck(account, {
+            fetch
+        }).createToken('app', options as never);
 
         expect(error?.code).toBe('app-check/invalid-argument');
         expect(data).toBeNull();
@@ -136,7 +139,7 @@ it('does not cache credentials with an unusable lifetime', async () => {
         data: { access_token: 'access', expires_in: 30 } as never
     });
     const cache = { getCache: vi.fn(), setCache: vi.fn() };
-    const { error } = await new AppCheck(account, fetch, cache).createToken(
+    const { error } = await new AppCheck(account, { fetch, cache }).createToken(
         'app'
     );
     expect(error).toBeNull();
@@ -146,10 +149,9 @@ it.each([true, false, undefined])(
     'returns replay status %s',
     async (alreadyConsumed) => {
         vi.mocked(appCheckRequest).mockResolvedValue({ alreadyConsumed });
-        const { error, data } = await new AppCheck(account, fetch).verifyToken(
-            'token',
-            { consume: true }
-        );
+        const { error, data } = await new AppCheck(account, {
+            fetch
+        }).verifyToken('token', { consume: true });
         expect(error).toBeNull();
         expect(data?.alreadyConsumed).toBe(alreadyConsumed ?? false);
         expect(appCheckRequest).toHaveBeenCalledWith(
@@ -164,9 +166,12 @@ it('rejects malformed replay status', async () => {
     vi.mocked(appCheckRequest).mockResolvedValue({
         alreadyConsumed: 'false'
     } as never);
-    const { error } = await new AppCheck(account, fetch).verifyToken('token', {
-        consume: true
-    });
+    const { error } = await new AppCheck(account, { fetch }).verifyToken(
+        'token',
+        {
+            consume: true
+        }
+    );
     expect(error?.code).toBe('app-check/internal-error');
 });
 it.each([null, [], { consume: 'true' }])(

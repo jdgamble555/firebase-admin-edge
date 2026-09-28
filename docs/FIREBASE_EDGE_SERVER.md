@@ -24,6 +24,22 @@ For user lookups, token checks, and sessions, see the
 For document reads through `firebaseServer.firestore`, see the
 [Firestore guide](FIRESTORE.md).
 
+For fluent Auth queries through `firebaseServer.identity`, see the
+[Identity guide](IDENTITY.md).
+
+```ts
+const { error, data } = await firebaseServer.identity
+    .users()
+    .orderBy('createdAt', 'desc')
+    .offset(20)
+    .limit(10)
+    .get();
+if (error) {
+    throw error;
+}
+console.log(data.users);
+```
+
 For App Check through `firebaseServer.appCheck`, see the [AppCheck guide](APP_CHECK.md).
 
 For file operations through `firebaseServer.storage`, set

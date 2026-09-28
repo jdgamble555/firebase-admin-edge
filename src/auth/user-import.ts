@@ -29,7 +29,11 @@ export type HashAlgorithmType =
     | 'SHA256'
     | 'SHA1';
 export interface UserImportOptions {
-    hash: {
+    /** Overwrite existing accounts with matching UIDs rather than rejecting them. */
+    allowOverwrite?: boolean;
+    /** Check duplicate emails, duplicate federated IDs, and provider validity. */
+    sanityCheck?: boolean;
+    hash?: {
         algorithm: HashAlgorithmType;
         key?: Uint8Array;
         saltSeparator?: Uint8Array;
@@ -63,6 +67,39 @@ export interface PreparedUserImport {
     body: { users: Record<string, unknown>[]; [key: string]: unknown };
     indices: number[];
     errors: FirebaseArrayIndexError[];
+}
+
+/** Validate writable user metadata and translate timestamps to milliseconds. @internal */
+export function buildUserMetadata(
+    metadata: UserMetadataRequest
+): Record<string, number> {
+    if (
+        !metadata ||
+        typeof metadata !== 'object' ||
+        Array.isArray(metadata) ||
+        Object.keys(metadata).some(
+            (key) => !['creationTime', 'lastSignInTime'].includes(key)
+        )
+    ) {
+        throw new Error(
+            'metadata accepts only creationTime and lastSignInTime.'
+        );
+    }
+    const body: Record<string, number> = {};
+    for (const [field, target] of [
+        ['creationTime', 'createdAt'],
+        ['lastSignInTime', 'lastLoginAt']
+    ] as const) {
+        const value = metadata[field];
+        if (value === undefined) {
+            continue;
+        }
+        if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
+            throw new Error(`Invalid metadata.${field}.`);
+        }
+        body[target] = Date.parse(value);
+    }
+    return body;
 }
 
 /** Encode byte buffers with the API's URL-safe base64 alphabet (including padding). */
@@ -181,18 +218,7 @@ export function buildImportUser(
     if (user.passwordSalt !== undefined)
         body.salt = encodeBytes(user.passwordSalt);
     if (user.metadata !== undefined) {
-        if (!user.metadata || typeof user.metadata !== 'object')
-            throw new Error('metadata must be an object.');
-        for (const [field, target] of [
-            ['creationTime', 'createdAt'],
-            ['lastSignInTime', 'lastLoginAt']
-        ] as const) {
-            const value = user.metadata[field];
-            if (value === undefined) continue;
-            if (typeof value !== 'string' || Number.isNaN(Date.parse(value)))
-                throw new Error(`Invalid metadata.${field}.`);
-            body[target] = Date.parse(value);
-        }
+        Object.assign(body, buildUserMetadata(user.metadata));
     }
     if (user.customClaims !== undefined) {
         if (
@@ -254,7 +280,7 @@ export function prepareUserImport(
 ):
     | { data: PreparedUserImport; error: null }
     | { data: null; error: FirebaseEdgeError } {
-    if (!Array.isArray(users) || users.length > 1000)
+    if (!Array.isArray(users) || users.length > 1000) {
         return {
             data: null,
             error: new FirebaseEdgeError({
@@ -262,6 +288,24 @@ export function prepareUserImport(
                 message: 'users must be an array of at most 1000 records.'
             })
         };
+    }
+    const flags: Record<string, boolean> = {};
+    for (const field of ['allowOverwrite', 'sanityCheck'] as const) {
+        const value = options?.[field];
+        if (value === undefined) {
+            continue;
+        }
+        if (typeof value !== 'boolean') {
+            return {
+                data: null,
+                error: new FirebaseEdgeError({
+                    ...FirebaseAdminAuthErrorInfo.ADMIN_API_INVALID_ARGUMENT,
+                    message: `${field} must be a boolean.`
+                })
+            };
+        }
+        flags[field] = value;
+    }
     const records: Record<string, unknown>[] = [];
     const indices: number[] = [];
     const errors: FirebaseArrayIndexError[] = [];
@@ -293,7 +337,15 @@ export function prepareUserImport(
             ? buildImportHashOptions(options)
             : {};
         return {
-            data: { body: { users: records, ...hashOptions }, indices, errors },
+            data: {
+                body: {
+                    users: records,
+                    ...hashOptions,
+                    ...flags
+                },
+                indices,
+                errors
+            },
             error: null
         };
     } catch (cause) {

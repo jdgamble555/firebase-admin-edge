@@ -25,11 +25,19 @@ import { FirebaseEdgeError, ensureError } from './errors.js';
 import { FirebaseAuthErrorInfo } from './auth-error-codes.js';
 import { buildEmailActionRequest } from './email-action-request.js';
 
+export interface FirebaseAuthOptions extends AuthEmulatorOptions {
+    tenantId?: string;
+    fetch?: typeof globalThis.fetch;
+}
+
 /**
  * Firebase Client Authentication handler for edge environments.
  * Provides client-side authentication operations using Firebase API.
  */
 export class FirebaseAuth {
+    private tenantId?: string;
+    private fetch?: typeof globalThis.fetch;
+
     async sendPasswordResetEmail(
         email: string,
         continueUrl = this.requestUri,
@@ -189,20 +197,21 @@ export class FirebaseAuth {
      *
      * @param firebase_config Firebase client configuration
      * @param requestUri OAuth callback URI
-     * @param tenantId Optional tenant ID for multi-tenancy
-     * @param fetch Optional custom fetch implementation
-     * @param options Auth emulator configuration; defaults to FIREBASE_AUTH_EMULATOR_HOST when set.
+     * @param options Optional constructor settings, including Auth emulator configuration.
      */
     constructor(
         private firebase_config: FirebaseConfig,
         private requestUri: string,
-        private tenantId?: string,
-        private fetch?: typeof globalThis.fetch,
-        options: AuthEmulatorOptions = {}
+        options: FirebaseAuthOptions = {}
     ) {
+        const { tenantId, fetch } = options;
+        this.tenantId = tenantId;
+        this.fetch = fetch;
+
         const emulatorHost = resolveAuthEmulatorHost(options.emulatorHost);
-        if (emulatorHost)
+        if (emulatorHost) {
             this.fetch = createAuthEmulatorFetch(emulatorHost, this.fetch);
+        }
     }
 
     /**

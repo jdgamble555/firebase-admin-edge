@@ -68,19 +68,18 @@ describe.skipIf(process.env.STORAGE_SPECIAL_LIVE_TESTS !== '1')(
             }
             accessToken = token.access_token;
             const cache = new TokenCache();
-            storage = new Storage(
-                account,
+            storage = new Storage(account, {
                 bucketName,
-                (input, init) =>
+                fetch: (input, init) =>
                     fetch(input, {
                         ...init,
                         signal: AbortSignal.timeout(30000)
                     }),
-                {
+                cache: {
                     getCache: cache.get.bind(cache),
                     setCache: cache.set.bind(cache)
                 }
-            );
+            });
             const { error } = await storage.createBucket({
                 location: process.env.STORAGE_TEST_LOCATION ?? 'US',
                 softDeletePolicy: { retentionDurationSeconds: '0' },
@@ -396,19 +395,18 @@ describe.skipIf(process.env.STORAGE_LIVE_TESTS !== '1')(
                 );
             }
             const cache = new TokenCache();
-            storage = new Storage(
-                account,
-                bucket,
-                (input, init) =>
+            storage = new Storage(account, {
+                bucketName: bucket,
+                fetch: (input, init) =>
                     fetch(input, {
                         ...init,
                         signal: AbortSignal.timeout(30000)
                     }),
-                {
+                cache: {
                     getCache: cache.get.bind(cache),
                     setCache: cache.set.bind(cache)
                 }
-            );
+            });
         });
 
         afterAll(async () => {
@@ -686,10 +684,9 @@ describe.skipIf(process.env.STORAGE_LIVE_TESTS !== '1')(
 
         it('recovers a lost acknowledgement from a live chunk without duplicating bytes', async () => {
             let interrupted = false;
-            const unstable = new Storage(
-                account,
-                storage!.bucketName,
-                async (input, init) => {
+            const unstable = new Storage(account, {
+                bucketName: storage!.bucketName,
+                fetch: async (input, init) => {
                     const response = await fetch(input, {
                         ...init,
                         signal: AbortSignal.timeout(30000)
@@ -710,7 +707,7 @@ describe.skipIf(process.env.STORAGE_LIVE_TESTS !== '1')(
                     }
                     return response;
                 }
-            );
+            });
             const bytes = new Uint8Array(262147).fill(65);
             const { error, data } = await unstable.uploadStream(
                 `${prefix}interrupted.bin`,
@@ -1100,19 +1097,18 @@ describe.skipIf(process.env.STORAGE_ADMIN_LIVE_TESTS !== '1')(
                 );
             }
             const cache = new TokenCache();
-            storage = new Storage(
-                account,
+            storage = new Storage(account, {
                 bucketName,
-                (input, init) =>
+                fetch: (input, init) =>
                     fetch(input, {
                         ...init,
                         signal: AbortSignal.timeout(30000)
                     }),
-                {
+                cache: {
                     getCache: cache.get.bind(cache),
                     setCache: cache.set.bind(cache)
                 }
-            );
+            });
             const { error } = await storage.createBucket({
                 location: process.env.STORAGE_TEST_LOCATION ?? 'US',
                 iamConfiguration: {

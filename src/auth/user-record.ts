@@ -17,6 +17,8 @@ export function createGetUsersResult(
             !users.some((user) => {
                 if ('uid' in id) return id.uid === user.uid;
                 if ('email' in id) return id.email === user.email;
+                if ('initialEmail' in id)
+                    return id.initialEmail === user.initialEmail;
                 if ('phoneNumber' in id)
                     return id.phoneNumber === user.phoneNumber;
                 return (
@@ -37,6 +39,7 @@ export interface ListUsersResult {
 }
 
 export interface UserRecord {
+    readonly initialEmail?: string;
     readonly uid: string;
     readonly email?: string;
     readonly emailVerified: boolean;
@@ -152,6 +155,9 @@ export function createUserRecord(
 
     return withJSON({
         uid: user.localId,
+        ...(user.initialEmail !== undefined && {
+            initialEmail: user.initialEmail
+        }),
         email: user.email,
         emailVerified: !!user.emailVerified,
         displayName: user.displayName,

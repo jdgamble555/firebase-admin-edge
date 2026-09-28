@@ -257,11 +257,10 @@ it('normalizes numeric read conditions and creates a missing file without overwr
 let storage: Storage;
 beforeEach(() => {
     vi.restoreAllMocks();
-    storage = new Storage(
-        { project_id: 'project' } as ServiceAccount,
-        'bucket',
-        vi.fn()
-    );
+    storage = new Storage({ project_id: 'project' } as ServiceAccount, {
+        bucketName: 'bucket',
+        fetch: vi.fn()
+    });
     vi.spyOn(Storage.prototype, 'scoped').mockImplementation(function (
         this: Storage
     ) {

@@ -136,20 +136,20 @@ All 26 classes below are exported from `firebase-admin-edge`:
 cache callbacks, and cache name. It uses the `(default)` Firestore database.
 Auth tenant IDs do not select a Firestore database.
 
-For standalone usage, the constructor follows the auth class's positional pattern,
-with a database ID in place of the Auth tenant ID:
+For standalone usage, use `new Firestore(serviceAccount, options?)`.
+The exported `FirestoreOptions` type includes `databaseId`, `fetch`, `cache`, and
+`cacheName`. The database defaults to `(default)` and the cache prefix to `__cache`:
 
 ```typescript
 import { Firestore } from 'firebase-admin-edge';
 
 const firestore = new Firestore(serviceAccount);
-const otherDatabase = new Firestore(
-    serviceAccount,
-    'my-database',
+const otherDatabase = new Firestore(serviceAccount, {
+    databaseId: 'my-database',
     fetch,
     cache,
-    'service-account-token'
-);
+    cacheName: 'service-account-token'
+});
 ```
 
 Cache callbacks follow the existing `CacheConfig` contract: TTL is in milliseconds.

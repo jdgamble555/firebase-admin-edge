@@ -11,6 +11,7 @@ import {
 } from './auth/provider-credential.js';
 import type { CookieConfig, CookieOptions } from './auth/cookie-types.js';
 import { FirebaseAdminAuth } from './auth/firebase-admin-auth.js';
+import { Identity } from './auth/identity.js';
 import { Firestore } from './db/firestore.js';
 import { AppCheck } from './app-check/app-check.js';
 import { Storage } from './storage/storage.js';
@@ -127,42 +128,42 @@ export function createFirebaseEdgeServer({
     const authOptions = {
         emulatorHost: resolveAuthEmulatorHost(authEmulatorHost)
     };
-    const auth = new FirebaseAuth(
-        firebaseConfig,
-        redirectUri,
+    const auth = new FirebaseAuth(firebaseConfig, redirectUri, {
         tenantId,
-        fetchImpl,
-        authOptions
-    );
-    const adminAuth = new FirebaseAdminAuth(
-        serviceAccount,
+        fetch: fetchImpl,
+        ...authOptions
+    });
+    const adminAuth = new FirebaseAdminAuth(serviceAccount, {
         tenantId,
-        fetchImpl,
-        cacheImpl,
+        fetch: fetchImpl,
+        cache: cacheImpl,
         cacheName,
-        authOptions
-    );
-    const firestore = new Firestore(
-        serviceAccount,
-        undefined,
-        fetchImpl,
-        cacheImpl,
+        ...authOptions
+    });
+    const firestore = new Firestore(serviceAccount, {
+        fetch: fetchImpl,
+        cache: cacheImpl,
         cacheName
-    );
+    });
+    const identity = new Identity(serviceAccount, {
+        tenantId,
+        fetch: fetchImpl,
+        cache: cacheImpl,
+        cacheName,
+        ...authOptions
+    });
 
-    const appCheck = new AppCheck(
-        serviceAccount,
-        fetchImpl,
-        cacheImpl,
+    const appCheck = new AppCheck(serviceAccount, {
+        fetch: fetchImpl,
+        cache: cacheImpl,
         cacheName
-    );
-    const storage = new Storage(
-        serviceAccount,
-        firebaseConfig.storageBucket,
-        fetchImpl,
-        cacheImpl,
+    });
+    const storage = new Storage(serviceAccount, {
+        bucketName: firebaseConfig.storageBucket,
+        fetch: fetchImpl,
+        cache: cacheImpl,
         cacheName
-    );
+    });
 
     /** Describe the confirmation form to render, without exchanging or consuming any code. */
     function getCallbackAction(url: URL) {
@@ -1118,6 +1119,7 @@ export function createFirebaseEdgeServer({
         auth,
         adminAuth,
         firestore,
+        identity,
         appCheck,
         storage,
         sendSignInLinkToEmail,

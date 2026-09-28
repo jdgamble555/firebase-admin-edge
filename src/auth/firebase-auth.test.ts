@@ -59,12 +59,10 @@ describe('FirebaseAuth', () => {
     });
     it('sends and completes email links with project, tenant, and custom fetch', async () => {
         const fetchFn = vi.fn();
-        const auth = new FirebaseAuth(
-            mockConfig,
-            'https://app/callback',
-            'tenant',
-            fetchFn
-        );
+        const auth = new FirebaseAuth(mockConfig, 'https://app/callback', {
+            tenantId: 'tenant',
+            fetch: fetchFn
+        });
         vi.mocked(endpoints.sendOobCode).mockResolvedValue({
             data: { email: 'a@b.com' },
             error: null
@@ -128,19 +126,14 @@ describe('FirebaseAuth', () => {
     it('routes client auth to a captured emulator host and allows production opt-out', async () => {
         vi.stubEnv('FIREBASE_AUTH_EMULATOR_HOST', 'localhost:9099');
         const fetchFn = vi.fn().mockResolvedValue(new Response('{}'));
-        const emulator = new FirebaseAuth(
-            mockConfig,
-            'http://localhost',
-            't',
-            fetchFn
-        );
-        const production = new FirebaseAuth(
-            mockConfig,
-            'http://localhost',
-            undefined,
-            fetchFn,
-            { emulatorHost: null }
-        );
+        const emulator = new FirebaseAuth(mockConfig, 'http://localhost', {
+            tenantId: 't',
+            fetch: fetchFn
+        });
+        const production = new FirebaseAuth(mockConfig, 'http://localhost', {
+            fetch: fetchFn,
+            emulatorHost: null
+        });
         vi.stubEnv('FIREBASE_AUTH_EMULATOR_HOST', 'different:9199');
         vi.mocked(endpoints.signInWithCustomToken).mockResolvedValue({
             data: { idToken: 'id' },
@@ -175,12 +168,9 @@ describe('FirebaseAuth', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockFetch = vi.fn() as unknown as typeof globalThis.fetch;
-        firebaseAuth = new FirebaseAuth(
-            mockConfig,
-            'http://localhost',
-            undefined,
-            mockFetch
-        );
+        firebaseAuth = new FirebaseAuth(mockConfig, 'http://localhost', {
+            fetch: mockFetch
+        });
     });
 
     describe('signInWithProvider', () => {
@@ -420,9 +410,7 @@ describe('FirebaseAuth provider authorization', () => {
     const auth = new FirebaseAuth(
         { apiKey: 'key', projectId: 'p', authDomain: 'p.firebaseapp.com' },
         'https://app/callback',
-        'tenant',
-        fetchFn,
-        { emulatorHost: null }
+        { tenantId: 'tenant', fetch: fetchFn, emulatorHost: null }
     );
     beforeEach(() => vi.resetAllMocks());
     it('delegates authorization with options', async () => {
@@ -524,8 +512,7 @@ describe('email account actions', () => {
                     typeof FirebaseAuth
                 >[0],
                 'https://app/callback',
-                'tenant',
-                fetchFn
+                { tenantId: 'tenant', fetch: fetchFn }
             );
             const failure = {
                 data: null,

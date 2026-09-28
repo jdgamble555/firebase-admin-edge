@@ -80,12 +80,14 @@ export interface ProviderIdentifier {
     providerUid: string;
 }
 export type UserIdentifier =
+    | { initialEmail: string }
     | UidIdentifier
     | EmailIdentifier
     | PhoneIdentifier
     | ProviderIdentifier;
 
 export interface UsersLookupRequest {
+    initialEmail?: string[];
     localId?: string[];
     email?: string[];
     phoneNumber?: string[];
@@ -124,10 +126,13 @@ export function buildUsersLookupRequest(
             (data.localId ??= []).push(id.uid);
             continue;
         }
-        if ('email' in id) {
+        if ('email' in id || 'initialEmail' in id) {
+            const field = 'email' in id ? 'email' : 'initialEmail';
+            const email = 'email' in id ? id.email : id.initialEmail;
             if (
-                typeof id.email !== 'string' ||
-                !/^[^\s@]+@[^\s@]+$/.test(id.email)
+                typeof email !== 'string' ||
+                email.length >= 256 ||
+                !/^[^\s@]+@[^\s@]+$/.test(email)
             ) {
                 return {
                     data: null,
@@ -137,7 +142,7 @@ export function buildUsersLookupRequest(
                     })
                 };
             }
-            (data.email ??= []).push(id.email);
+            (data[field] ??= []).push(email);
             continue;
         }
         if ('phoneNumber' in id) {

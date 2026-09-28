@@ -51,10 +51,10 @@ describe.skipIf(process.env.FIRESTORE_LIVE_TESTS !== '1')(
                 throw new Error(
                     'The live-test service account is missing project_id, client_email or private_key.'
                 );
-            db = new Firestore(
-                account,
-                process.env.FIRESTORE_TEST_DATABASE_ID ?? '(default)',
-                async (input, init) => {
+            db = new Firestore(account, {
+                databaseId:
+                    process.env.FIRESTORE_TEST_DATABASE_ID ?? '(default)',
+                fetch: async (input, init) => {
                     requests.push(String(input));
                     const deadline = AbortSignal.timeout(20000);
                     const signal = init?.signal
@@ -62,7 +62,7 @@ describe.skipIf(process.env.FIRESTORE_LIVE_TESTS !== '1')(
                         : deadline;
                     return fetch(input, { ...init, signal });
                 }
-            );
+            });
             console.info(`Live Firestore test data: ${rootPath}`);
             await db
                 .doc(rootPath)

@@ -23,6 +23,10 @@ it('exports the shared error class and Firestore error definitions', () => {
 it('exports the complete requested class list as runtime constructors', () => {
     for (const name of [
         'AppCheck',
+        'Identity',
+        'IdentityQuery',
+        'IdentityCountQuery',
+        'IdentityReference',
         'Storage',
         'Firestore',
         'VectorValue',
@@ -68,15 +72,12 @@ import type { ServiceAccount } from './auth/firebase-types.js';
 vi.mock('./db/firestore-endpoints.js');
 
 it('exports all six classes and returns their instances from public read APIs', async () => {
-    const firestore = new Firestore(
-        { project_id: 'p' } as ServiceAccount,
-        undefined,
-        undefined,
-        {
+    const firestore = new Firestore({ project_id: 'p' } as ServiceAccount, {
+        cache: {
             getCache: vi.fn().mockReturnValue({ access_token: 'token' }),
             setCache: vi.fn()
         }
-    );
+    });
     const collection = firestore.collection('users');
     const ref = collection.doc('a');
     const document = {

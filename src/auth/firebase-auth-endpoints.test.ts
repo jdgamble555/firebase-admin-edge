@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+    countAccounts,
+    queryAccounts,
     createAuthEmulatorFetch,
     manageAuthConfig,
     generateEmailActionLink,
@@ -31,6 +33,240 @@ import { FirebaseEdgeError, FirebaseEndpointErrorInfo } from './errors.js';
 import type { AuthConfigOperation } from './auth-config-types.js';
 
 vi.mock('../rest-fetch.js');
+
+describe('countAccounts', () => {
+    beforeEach(() => vi.resetAllMocks());
+
+    it.each([null, 'invalid', []])(
+        'rejects malformed count response bodies',
+        async (body) => {
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: body,
+                error: null
+            });
+            const { error, data } = await countAccounts('token', 'p');
+            expect(error).toMatchObject({ code: 'auth/internal-error' });
+            expect(data).toBeNull();
+        }
+    );
+
+    it.each(['uid', 'email', 'phoneNumber'] as const)(
+        'counts %s with the same expression as fetch and no pagination fields',
+        async (field) => {
+            const fetchFn = vi.fn();
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: { recordsCount: '12000' },
+                error: null
+            });
+            const { error, data } = await countAccounts(
+                'token',
+                'project/id',
+                { field, value: 'value' },
+                'tenant',
+                fetchFn
+            );
+            expect(error).toBeNull();
+            expect(data).toBe(12000);
+            expect(restFetch.restFetch).toHaveBeenCalledExactlyOnceWith(
+                'https://identitytoolkit.googleapis.com/v1/projects/project%2Fid/accounts:query',
+                {
+                    method: 'POST',
+                    bearerToken: 'token',
+                    global: { fetch: fetchFn },
+                    body: {
+                        returnUserInfo: false,
+                        tenantId: 'tenant',
+                        expression: [
+                            { [field === 'uid' ? 'userId' : field]: 'value' }
+                        ]
+                    }
+                }
+            );
+        }
+    );
+
+    it('counts the entire project and accepts the omitted proto zero value', async () => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: {},
+            error: null
+        });
+        const { data } = await countAccounts('token', 'p');
+        expect(data).toBe(0);
+        expect(restFetch.restFetch).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ body: { returnUserInfo: false } })
+        );
+    });
+
+    it.each(['-1', '1.5', 'NaN', '', '9007199254740992', 10, null])(
+        'rejects invalid or unsafe counts %s',
+        async (recordsCount) => {
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: { recordsCount },
+                error: null
+            });
+            const { error, data } = await countAccounts('token', 'p');
+            expect(error).toMatchObject({ code: 'auth/internal-error' });
+            expect(data).toBeNull();
+        }
+    );
+
+    it('accepts the largest safe integer count', async () => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: { recordsCount: String(Number.MAX_SAFE_INTEGER) },
+            error: null
+        });
+        const { data } = await countAccounts('token', 'p');
+        expect(data).toBe(Number.MAX_SAFE_INTEGER);
+    });
+
+    it('returns API and network errors without falling back to fetching users', async () => {
+        vi.mocked(restFetch.restFetch).mockResolvedValueOnce({
+            data: null,
+            error: { error: { code: 403, message: 'PERMISSION_DENIED' } }
+        });
+        const { error, data } = await countAccounts('token', 'p');
+        expect(error).toBeInstanceOf(FirebaseEdgeError);
+        expect(data).toBeNull();
+        const failure = new Error('network');
+        vi.mocked(restFetch.restFetch).mockRejectedValueOnce(failure);
+        const { error: thrown } = await countAccounts('token', 'p');
+        expect(thrown).toBe(failure);
+        expect(restFetch.restFetch).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('queryAccounts', () => {
+    beforeEach(() => vi.resetAllMocks());
+
+    it('posts native expressions, sorting and string pagination with tenant scope', async () => {
+        const fetchFn = vi.fn();
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: { userInfo: [{ localId: 'u' }], recordsCount: '1' },
+            error: null
+        });
+        const { error, data } = await queryAccounts(
+            'token',
+            'project/id',
+            {
+                filter: { field: 'uid', value: 'u' },
+                orderBy: { field: 'createdAt', direction: 'desc' },
+                offset: 20,
+                limit: 10
+            },
+            'tenant',
+            fetchFn
+        );
+        expect(error).toBeNull();
+        expect(data).toEqual([{ localId: 'u' }]);
+        expect(restFetch.restFetch).toHaveBeenCalledWith(
+            'https://identitytoolkit.googleapis.com/v1/projects/project%2Fid/accounts:query',
+            {
+                method: 'POST',
+                bearerToken: 'token',
+                global: { fetch: fetchFn },
+                body: {
+                    returnUserInfo: true,
+                    limit: '10',
+                    offset: '20',
+                    tenantId: 'tenant',
+                    expression: [{ userId: 'u' }],
+                    sortBy: 'CREATED_AT',
+                    order: 'DESC'
+                }
+            }
+        );
+    });
+
+    it.each([
+        ['uid', 'USER_ID'],
+        ['displayName', 'NAME'],
+        ['createdAt', 'CREATED_AT'],
+        ['lastLoginAt', 'LAST_LOGIN_AT'],
+        ['email', 'USER_EMAIL']
+    ] as const)('maps sort field %s', async (field, sortBy) => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: {},
+            error: null
+        });
+        const { data } = await queryAccounts('token', 'p', {
+            orderBy: { field, direction: 'asc' }
+        });
+        expect(data).toEqual([]);
+        expect(restFetch.restFetch).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                body: {
+                    returnUserInfo: true,
+                    offset: '0',
+                    limit: '500',
+                    sortBy,
+                    order: 'ASC'
+                }
+            })
+        );
+    });
+
+    it.each(['email', 'phoneNumber'] as const)(
+        'preserves %s expressions',
+        async (field) => {
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: {},
+                error: null
+            });
+            await queryAccounts('token', 'p', {
+                filter: { field, value: 'value' }
+            });
+            expect(restFetch.restFetch).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.objectContaining({
+                    body: {
+                        returnUserInfo: true,
+                        offset: '0',
+                        limit: '500',
+                        expression: [{ [field]: 'value' }]
+                    }
+                })
+            );
+        }
+    );
+
+    it('omits optional fields and handles empty responses', async () => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: { recordsCount: '0' },
+            error: null
+        });
+        const { error, data } = await queryAccounts('token', 'p', {});
+        expect(error).toBeNull();
+        expect(data).toEqual([]);
+        expect(restFetch.restFetch).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                body: { returnUserInfo: true, offset: '0', limit: '500' }
+            })
+        );
+    });
+
+    it('normalizes REST errors and transport failures', async () => {
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: null,
+            error: { error: { code: 403, message: 'PERMISSION_DENIED' } }
+        });
+        const { error, data } = await queryAccounts('token', 'p', {});
+        expect(error).toBeInstanceOf(FirebaseEdgeError);
+        expect(data).toBeNull();
+        vi.mocked(restFetch.restFetch).mockResolvedValue({
+            data: null,
+            error: 'gateway failure'
+        });
+        const { error: textError } = await queryAccounts('token', 'p', {});
+        expect(textError).toBeInstanceOf(Error);
+        const failure = new Error('network');
+        vi.mocked(restFetch.restFetch).mockRejectedValue(failure);
+        const { error: networkError } = await queryAccounts('token', 'p', {});
+        expect(networkError).toBe(failure);
+    });
+});
 
 describe('auth emulator transport', () => {
     it.each([
@@ -551,7 +787,9 @@ describe('firebase-auth-endpoints', () => {
             async (tenantId) => {
                 const body = {
                     users: [{ localId: 'uid', passwordHash: 'AQ==' }],
-                    hashAlgorithm: 'BCRYPT'
+                    hashAlgorithm: 'BCRYPT',
+                    allowOverwrite: true,
+                    sanityCheck: true
                 };
                 const response = { error: [{ index: 0, message: 'failure' }] };
                 vi.mocked(restFetch.restFetch).mockResolvedValue({
@@ -655,6 +893,7 @@ describe('firebase-auth-endpoints', () => {
                 const body = {
                     localId: ['uid'],
                     email: ['user@example.com'],
+                    initialEmail: ['original@example.com'],
                     phoneNumber: ['+15555550100'],
                     federatedUserId: [
                         { providerId: 'google.com', rawId: 'external' }

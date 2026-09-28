@@ -38,9 +38,7 @@ it('isolates shared caches by service account and avoids caching expired tokens'
     ]) {
         const db = new Firestore(
             { ...account, client_email: email },
-            undefined,
-            undefined,
-            cache
+            { cache }
         );
         const { error } = await db.doc('users/a').get();
         expect(error).toBeNull();
@@ -52,7 +50,7 @@ it('isolates shared caches by service account and avoids caching expired tokens'
         data: { ...token, expires_in: 30 }
     });
     const shortCache = { getCache: vi.fn(), setCache: vi.fn() };
-    const db = new Firestore(account, undefined, undefined, shortCache);
+    const db = new Firestore(account, { cache: shortCache });
     const { error } = await db.doc('users/a').get();
     expect(error).toBeNull();
     expect(shortCache.setCache).not.toHaveBeenCalled();
@@ -84,7 +82,10 @@ it('deregisters polling listeners and stops registered listeners on termination'
 
 it('constructs raw JSON snapshots locally with metadata and decoded references', () => {
     const transport = vi.fn();
-    const db = new Firestore(account, 'custom', transport);
+    const db = new Firestore(account, {
+        databaseId: 'custom',
+        fetch: transport
+    });
     db.settings({ useBigInt: true });
     const name = `projects/${account.project_id}/databases/custom/documents/users/a`;
     const time = '2026-01-01T00:00:00.123456789Z';
@@ -262,7 +263,7 @@ it.each([
 );
 
 it('creates bundles and delegates partition queries with the configured database', async () => {
-    const db = new Firestore(account, 'db');
+    const db = new Firestore(account, { databaseId: 'db' });
     expect(db.bundle('example').build()).toBeInstanceOf(Uint8Array);
     vi.mocked(partitionQuery).mockResolvedValue(['posts/a']);
     const paths = await db._partitionQuery('posts', 4);
@@ -469,7 +470,7 @@ it('getAll preserves reference identity, conversion, order and field masks', asy
 });
 
 it('lists root/nested collections and documents using the configured database', async () => {
-    const db = new Firestore(account, 'custom');
+    const db = new Firestore(account, { databaseId: 'custom' });
     vi.mocked(listCollectionIds).mockResolvedValue(['posts']);
     const root = await db.listCollections().then(firestoreData);
     expect(root[0]!.path).toBe('posts');
@@ -531,7 +532,7 @@ it('streams with shared credentials and cancels before a request if already abor
 
 it('exposes write factories and delegates document writes to authenticated commits', async () => {
     const fetchFn = vi.fn();
-    const db = new Firestore(account, 'custom', fetchFn);
+    const db = new Firestore(account, { databaseId: 'custom', fetch: fetchFn });
     expect(db.batch()).toBeInstanceOf(WriteBatch);
     expect(db.bulkWriter()).toBeInstanceOf(BulkWriter);
     const result = new WriteResult(new Timestamp(0, 0));
@@ -689,7 +690,12 @@ it('executes collection queries with the configured credentials and transport', 
         setCache: vi.fn()
     };
     vi.mocked(runQuery).mockResolvedValueOnce([]);
-    const db = new Firestore(account, 'custom', fetchFn, cache, 'query-token');
+    const db = new Firestore(account, {
+        databaseId: 'custom',
+        fetch: fetchFn,
+        cache,
+        cacheName: 'query-token'
+    });
     const getResult = await db
         .collection('users')
         .limit(2)
@@ -738,7 +744,7 @@ it('returns DocumentReference instances through factories and parent navigation'
 
 it('keeps document reads and subcollection queries on the configured database', async () => {
     const fetchFn = vi.fn();
-    const db = new Firestore(account, 'custom', fetchFn);
+    const db = new Firestore(account, { databaseId: 'custom', fetch: fetchFn });
     const ref = db.doc('users/alice');
     await ref.collection('posts').doc('first').get().then(firestoreData);
     expect(getDocument).toHaveBeenCalledWith(
@@ -776,7 +782,7 @@ it('uses DocumentReference instances in query snapshots', async () => {
 
 it('reads through collection().doc().get() with snapshot metadata and fresh data', async () => {
     const fetchFn = vi.fn();
-    const db = new Firestore(account, 'custom', fetchFn);
+    const db = new Firestore(account, { databaseId: 'custom', fetch: fetchFn });
     const collection = db.collection('users');
     expect(collection).toMatchObject({ id: 'users', path: 'users' });
     const ref = collection.doc('alice');
@@ -837,8 +843,12 @@ it.each([
 
 it('guards constructor and collection paths', () => {
     expect(() => new Firestore({} as ServiceAccount)).toThrow('project_id');
-    expect(() => new Firestore(account, '')).toThrow('database');
-    expect(() => new Firestore(account, 'a/b')).toThrow('database');
+    expect(() => new Firestore(account, { databaseId: '' })).toThrow(
+        'database'
+    );
+    expect(() => new Firestore(account, { databaseId: 'a/b' })).toThrow(
+        'database'
+    );
     const db = new Firestore(account);
     expect(() => db.collection('users/a')).toThrow('collection');
     expect(() => db.collection('users').doc('')).toThrow(FirebaseEdgeError);
@@ -848,13 +858,7 @@ it('guards constructor and collection paths', () => {
 
 it('uses the same cache key for reads and writes with a millisecond TTL', async () => {
     const cache = { getCache: vi.fn(), setCache: vi.fn() };
-    const db = new Firestore(
-        account,
-        undefined,
-        undefined,
-        cache,
-        'custom-token'
-    );
+    const db = new Firestore(account, { cache, cacheName: 'custom-token' });
     await db.doc('users/a').get().then(firestoreData);
     expect(cache.getCache).toHaveBeenCalledWith(
         `custom-token:firestore:${account.client_email}`
@@ -871,7 +875,7 @@ it('uses the same cache key for reads and writes with a millisecond TTL', async 
 
 it('uses the default cache key and refreshes an empty cached token', async () => {
     const cache = { getCache: vi.fn().mockReturnValue({}), setCache: vi.fn() };
-    await new Firestore(account, undefined, undefined, cache)
+    await new Firestore(account, { cache })
         .doc('users/a')
         .get()
         .then(firestoreData);
@@ -921,7 +925,7 @@ it('isolates cached tokens when settings replace credentials', async () => {
         getCache: vi.fn().mockReturnValue(undefined),
         setCache: vi.fn()
     };
-    const db = new Firestore(account, undefined, undefined, cache, 'auth');
+    const db = new Firestore(account, { cache, cacheName: 'auth' });
     db.settings({
         credentials: { client_email: 'other@example.com', private_key: 'key' }
     });
@@ -931,7 +935,7 @@ it('isolates cached tokens when settings replace credentials', async () => {
     );
 });
 it('exposes project/database identity and decodes resource references', () => {
-    const db = new Firestore(account, 'custom');
+    const db = new Firestore(account, { databaseId: 'custom' });
     expect(db.projectId).toBe('project');
     expect(db.databaseId).toBe('custom');
     const ref = db._reference(
@@ -1018,7 +1022,7 @@ it('coordinates explain streams and forwards abort signals', async () => {
 
 it('delegates independent bulk writes with credentials and rejects after termination', async () => {
     const transport = vi.fn();
-    const db = new Firestore(account, undefined, transport);
+    const db = new Firestore(account, { fetch: transport });
     const writes = [{ path: 'users/a', kind: 'delete' as const }];
     const outcomes = [new WriteResult(new Timestamp(0, 0))];
     vi.mocked(batchWrite).mockResolvedValue(outcomes);

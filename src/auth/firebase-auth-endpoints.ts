@@ -24,6 +24,7 @@ import {
 } from './auth-endpoint-errors.js';
 import { FirebaseEdgeError, ensureError } from './errors.js';
 import type { ListUsersResponse } from './user-record.js';
+import type { IdentityQueryOptions } from './identity-types.js';
 import type { UsersLookupRequest } from './user-request.js';
 import type { BatchUserError } from './user-batch.js';
 import type { PreparedUserImport } from './user-import.js';
@@ -40,6 +41,131 @@ import {
     configUpdateMask,
     parseAuthConfigResponse
 } from './auth-config.js';
+
+/** Query accounts with native sorting and offset pagination. @internal */
+export async function queryAccounts(
+    token: string,
+    projectId: string,
+    options: IdentityQueryOptions,
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+) {
+    const { error, data } = await requestAccountQuery(
+        token,
+        projectId,
+        options,
+        tenantId,
+        fetchFn
+    );
+    if (error) {
+        return { data: null, error };
+    }
+    return { data: data?.userInfo ?? [], error: null };
+}
+
+/** Request the server-side count without downloading any accounts. @internal */
+export async function countAccounts(
+    token: string,
+    projectId: string,
+    filter?: IdentityQueryOptions['filter'],
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+) {
+    const { error, data } = await requestAccountQuery(
+        token,
+        projectId,
+        { filter },
+        tenantId,
+        fetchFn,
+        true
+    );
+    if (error) {
+        return { data: null, error };
+    }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        return {
+            data: null,
+            error: new FirebaseEdgeError({
+                code: 'auth/internal-error',
+                message: 'The count endpoint returned an invalid response.'
+            })
+        };
+    }
+    const raw = data.recordsCount === undefined ? '0' : data.recordsCount;
+    const count = Number(raw);
+    if (
+        typeof raw !== 'string' ||
+        !/^\d+$/.test(raw) ||
+        !Number.isSafeInteger(count)
+    ) {
+        return {
+            data: null,
+            error: new FirebaseEdgeError({
+                code: 'auth/internal-error',
+                message:
+                    'The account count was invalid or exceeded the safe integer range.'
+            })
+        };
+    }
+    return { data: count, error: null };
+}
+
+/** Shared request construction ensures fetch and count have identical filter semantics. */
+async function requestAccountQuery(
+    token: string,
+    projectId: string,
+    options: IdentityQueryOptions,
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch,
+    countOnly = false
+) {
+    const sortFields = {
+        uid: 'USER_ID',
+        displayName: 'NAME',
+        createdAt: 'CREATED_AT',
+        lastLoginAt: 'LAST_LOGIN_AT',
+        email: 'USER_EMAIL'
+    };
+    const { filter, orderBy } = options;
+    const url = createAdminIdentityURL(projectId, 'query');
+    try {
+        const { error, data } = await restFetch<
+            { userInfo?: ListUsersResponse['users']; recordsCount?: string },
+            FirebaseRestError
+        >(url, {
+            method: 'POST',
+            bearerToken: token,
+            global: { fetch: fetchFn },
+            body: {
+                returnUserInfo: !countOnly,
+                ...(!countOnly && {
+                    limit: String(options.limit ?? 500),
+                    offset: String(options.offset ?? 0)
+                }),
+                ...(tenantId !== undefined && { tenantId }),
+                ...(filter && {
+                    expression: [
+                        {
+                            [filter.field === 'uid' ? 'userId' : filter.field]:
+                                filter.value
+                        }
+                    ]
+                }),
+                ...(!countOnly &&
+                    orderBy && {
+                        sortBy: sortFields[orderBy.field],
+                        order: orderBy.direction === 'asc' ? 'ASC' : 'DESC'
+                    })
+            }
+        });
+        if (error) {
+            return { data: null, error: normalizeAdminEndpointError(error) };
+        }
+        return { data, error: null };
+    } catch (cause) {
+        return { data: null, error: ensureError(cause) };
+    }
+}
 
 /** Route Auth REST requests to an explicitly configured emulator. Other services keep their original URLs. @internal */
 export function createAuthEmulatorFetch(

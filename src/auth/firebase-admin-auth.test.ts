@@ -7,6 +7,8 @@ import type {
     UserInfo
 } from './firebase-types.js';
 import {
+    countAccounts,
+    queryAccounts,
     revokeRefreshTokens,
     manageAuthConfig,
     generateEmailActionLink,
@@ -38,6 +40,8 @@ vi.mock('./firebase-auth-endpoints.js', async (importOriginal) => {
     const actual =
         await importOriginal<typeof import('./firebase-auth-endpoints.js')>();
     return {
+        countAccounts: vi.fn(),
+        queryAccounts: vi.fn(),
         createAuthEmulatorFetch: actual.createAuthEmulatorFetch,
         revokeRefreshTokens: vi.fn(),
         manageAuthConfig: vi.fn(),
@@ -67,20 +71,167 @@ vi.mock('./google-oauth.js', () => ({
 
 const mockedGetToken = vi.mocked(getToken);
 
+describe('Identity count orchestration', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('uses cached credentials and forwards the filter, tenant and custom fetch', async () => {
+        const fetchFn = vi.fn();
+        const cache = {
+            getCache: vi.fn().mockResolvedValue(mockGoogleTokenResponse),
+            setCache: vi.fn()
+        };
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            tenantId: 'tenant',
+            fetch: fetchFn,
+            cache,
+            emulatorHost: null
+        });
+        vi.mocked(countAccounts).mockResolvedValue({ data: 42, error: null });
+        const { error, data } = await auth._countUsers({
+            field: 'email',
+            value: 'a@example.com'
+        });
+        expect(error).toBeNull();
+        expect(data).toBe(42);
+        expect(countAccounts).toHaveBeenCalledExactlyOnceWith(
+            mockGoogleTokenResponse.access_token,
+            serviceAccountKey.project_id,
+            { field: 'email', value: 'a@example.com' },
+            'tenant',
+            fetchFn
+        );
+        expect(queryAccounts).not.toHaveBeenCalled();
+        expect(getToken).not.toHaveBeenCalled();
+    });
+
+    it('stops at token failures or missing tokens', async () => {
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            emulatorHost: null
+        });
+        const failure = new Error('token failure');
+        mockedGetToken.mockResolvedValueOnce({ data: null, error: failure });
+        const { error } = await auth._countUsers();
+        expect(error).toBe(failure);
+        mockedGetToken.mockResolvedValueOnce({
+            data: {} as GoogleTokenResponse,
+            error: null
+        });
+        const { error: missing } = await auth._countUsers();
+        expect(missing).toBeInstanceOf(FirebaseEdgeError);
+        expect(countAccounts).not.toHaveBeenCalled();
+    });
+
+    it('uses emulator credentials and preserves endpoint failures', async () => {
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            emulatorHost: 'localhost:9099'
+        });
+        const failure = new Error('count failure');
+        vi.mocked(countAccounts).mockResolvedValueOnce({
+            data: null,
+            error: failure
+        });
+        const { error, data } = await auth._countUsers();
+        expect(error).toBe(failure);
+        expect(data).toBeNull();
+        expect(countAccounts).toHaveBeenCalledWith(
+            'owner',
+            serviceAccountKey.project_id,
+            undefined,
+            undefined,
+            expect.any(Function)
+        );
+        vi.mocked(countAccounts).mockRejectedValueOnce(failure);
+        const { error: thrown } = await auth._countUsers();
+        expect(thrown).toBe(failure);
+    });
+});
+
+describe('Identity query orchestration', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('uses cached credentials, forwards tenant and fetch, and converts users', async () => {
+        const fetchFn = vi.fn();
+        const cache = {
+            getCache: vi.fn().mockResolvedValue(mockGoogleTokenResponse),
+            setCache: vi.fn()
+        };
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            tenantId: 'tenant',
+            fetch: fetchFn,
+            cache,
+            emulatorHost: null
+        });
+        vi.mocked(queryAccounts).mockResolvedValue({
+            data: [
+                { localId: 'u', disabled: true, createdAt: '1000' } as UserInfo
+            ],
+            error: null
+        });
+        const { error, data } = await auth._queryUsers({ limit: 10 });
+        expect(error).toBeNull();
+        expect(data?.[0]).toMatchObject({ uid: 'u', disabled: true });
+        expect(queryAccounts).toHaveBeenCalledWith(
+            mockGoogleTokenResponse.access_token,
+            serviceAccountKey.project_id,
+            { limit: 10 },
+            'tenant',
+            fetchFn
+        );
+        expect(getToken).not.toHaveBeenCalled();
+    });
+
+    it('returns token failures and missing-token errors before querying', async () => {
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            emulatorHost: null
+        });
+        const failure = new Error('token failure');
+        mockedGetToken.mockResolvedValueOnce({ data: null, error: failure });
+        const { error } = await auth._queryUsers({});
+        expect(error).toBe(failure);
+        mockedGetToken.mockResolvedValueOnce({
+            data: {} as GoogleTokenResponse,
+            error: null
+        });
+        const { error: missing } = await auth._queryUsers({});
+        expect(missing).toBeInstanceOf(FirebaseEdgeError);
+        expect(queryAccounts).not.toHaveBeenCalled();
+    });
+
+    it('uses emulator credentials and returns endpoint failures', async () => {
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            emulatorHost: 'localhost:9099'
+        });
+        const failure = new Error('query failure');
+        vi.mocked(queryAccounts).mockResolvedValueOnce({
+            data: null,
+            error: failure
+        });
+        const { error, data } = await auth._queryUsers({});
+        expect(error).toBe(failure);
+        expect(data).toBeNull();
+        expect(queryAccounts).toHaveBeenCalledWith(
+            'owner',
+            serviceAccountKey.project_id,
+            {},
+            undefined,
+            expect.any(Function)
+        );
+        vi.mocked(queryAccounts).mockRejectedValueOnce(failure);
+        const { error: thrown } = await auth._queryUsers({});
+        expect(thrown).toBe(failure);
+    });
+});
+
 describe('blocking token orchestration', () => {
     beforeEach(() => vi.clearAllMocks());
     it.each([null, 'localhost:9099'])(
         'forwards the captured emulator setting %s and custom audience',
         async (emulatorHost) => {
             const fetchFn = vi.fn();
-            const auth = new FirebaseAdminAuth(
-                serviceAccountKey,
-                undefined,
-                fetchFn,
-                undefined,
-                undefined,
-                { emulatorHost }
-            );
+            const auth = new FirebaseAdminAuth(serviceAccountKey, {
+                fetch: fetchFn,
+                emulatorHost
+            });
             const data = {
                 iss: 'issuer',
                 aud: 'audience',
@@ -114,14 +265,9 @@ describe('blocking token orchestration', () => {
     it.each(['tenant-a', 'other', undefined])(
         'checks the top-level tenant_id (%s)',
         async (tenant_id) => {
-            const auth = new FirebaseAdminAuth(
-                serviceAccountKey,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                { emulatorHost: null }
-            )
+            const auth = new FirebaseAdminAuth(serviceAccountKey, {
+                emulatorHost: null
+            })
                 .tenantManager()
                 .authForTenant('tenant-a');
             vi.mocked(verifyAuthBlockingJWT).mockResolvedValue({
@@ -183,11 +329,7 @@ it('isolates Auth tokens across accounts sharing a cache and prefix', async () =
     ]) {
         const auth = new FirebaseAdminAuth(
             { ...serviceAccountKey, client_email: email },
-            undefined,
-            undefined,
-            cache,
-            'shared',
-            { emulatorHost: null }
+            { cache, cacheName: 'shared', emulatorHost: null }
         );
         const { error } = await auth.projectConfigManager().getProjectConfig();
         expect(error).toBeNull();
@@ -216,12 +358,10 @@ describe('admin auth emulator', () => {
             setCache: vi.fn()
         };
         const fetchFn = vi.fn().mockResolvedValue(new Response('{}'));
-        const auth = new FirebaseAdminAuth(
-            serviceAccountKey,
-            undefined,
-            fetchFn,
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            fetch: fetchFn,
             cache
-        );
+        });
         const result = await auth.getUser('uid-1');
         expect(result.error).toBeNull();
         expect(getToken).not.toHaveBeenCalled();
@@ -245,11 +385,9 @@ describe('admin auth emulator', () => {
 
     it('captures emulator settings and propagates them to tenants and configuration operations', async () => {
         const fetchFn = vi.fn().mockResolvedValue(new Response('{}'));
-        const auth = new FirebaseAdminAuth(
-            serviceAccountKey,
-            undefined,
-            fetchFn
-        );
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            fetch: fetchFn
+        });
         vi.stubEnv('FIREBASE_AUTH_EMULATOR_HOST', 'other-host:9199');
         const tenant = auth.tenantManager().authForTenant('tenant-a');
         vi.mocked(manageAuthConfig).mockResolvedValue({
@@ -275,14 +413,10 @@ describe('admin auth emulator', () => {
 
     it('supports explicit production mode alongside an emulator instance', async () => {
         const fetchFn = vi.fn();
-        const production = new FirebaseAdminAuth(
-            serviceAccountKey,
-            undefined,
-            fetchFn,
-            undefined,
-            undefined,
-            { emulatorHost: null }
-        );
+        const production = new FirebaseAdminAuth(serviceAccountKey, {
+            fetch: fetchFn,
+            emulatorHost: null
+        });
         vi.mocked(getToken).mockResolvedValue({
             data: mockGoogleTokenResponse,
             error: null
@@ -308,7 +442,9 @@ describe('admin auth emulator', () => {
     });
 
     it('passes emulator mode to token helpers and still enforces tenant matching', async () => {
-        const auth = new FirebaseAdminAuth(serviceAccountKey, 'tenant-a');
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            tenantId: 'tenant-a'
+        });
         vi.mocked(verifyJWT).mockResolvedValue({
             data: {
                 ...mockFirebasePayload,
@@ -437,11 +573,10 @@ describe('admin configuration orchestration', () => {
 
     it('delegates each provider operation with credentials and tenant scope', async () => {
         const customFetch = vi.fn();
-        const auth = new FirebaseAdminAuth(
-            serviceAccountKey,
-            'tenant-a',
-            customFetch
-        );
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            tenantId: 'tenant-a',
+            fetch: customFetch
+        });
         const config = {
             providerId: 'oidc.a',
             enabled: true,
@@ -498,13 +633,11 @@ describe('admin configuration orchestration', () => {
             getCache: vi.fn().mockResolvedValue(mockGoogleTokenResponse),
             setCache: vi.fn()
         };
-        const auth = new FirebaseAdminAuth(
-            serviceAccountKey,
-            undefined,
-            fetchFn,
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            fetch: fetchFn,
             cache,
-            'custom-cache'
-        );
+            cacheName: 'custom-cache'
+        });
         expect(auth.projectConfigManager()).toBe(auth.projectConfigManager());
         expect(auth.tenantManager()).toBe(auth.tenantManager());
         const scoped = auth.tenantManager().authForTenant('t');
@@ -656,10 +789,9 @@ describe('FirebaseAdminAuth', () => {
 
     beforeEach(() => {
         auth = new FirebaseAdminAuth(serviceAccountKey);
-        authWithTenant = new FirebaseAdminAuth(
-            serviceAccountKey,
-            'test-tenant-id'
-        );
+        authWithTenant = new FirebaseAdminAuth(serviceAccountKey, {
+            tenantId: 'test-tenant-id'
+        });
         vi.clearAllMocks();
     });
 
@@ -673,10 +805,9 @@ describe('FirebaseAdminAuth', () => {
             (tenant) => {
                 expect(
                     () =>
-                        new FirebaseAdminAuth(
-                            serviceAccountKey,
-                            tenant as string
-                        )
+                        new FirebaseAdminAuth(serviceAccountKey, {
+                            tenantId: tenant as string
+                        })
                 ).toThrow(FirebaseEdgeError);
             }
         );
@@ -691,13 +822,10 @@ describe('FirebaseAdminAuth', () => {
                         cached = value as GoogleTokenResponse;
                     })
                 };
-                const cachedAuth = new FirebaseAdminAuth(
-                    serviceAccountKey,
-                    undefined,
-                    undefined,
+                const cachedAuth = new FirebaseAdminAuth(serviceAccountKey, {
                     cache,
                     cacheName
-                );
+                });
                 mockedGetToken.mockResolvedValue({
                     data: { ...mockGoogleTokenResponse, expires_in: 1800 },
                     error: null
@@ -738,12 +866,9 @@ describe('FirebaseAdminAuth', () => {
                     data: mockGoogleTokenResponse,
                     error: null
                 });
-                const cachedAuth = new FirebaseAdminAuth(
-                    serviceAccountKey,
-                    undefined,
-                    undefined,
+                const cachedAuth = new FirebaseAdminAuth(serviceAccountKey, {
                     cache
-                );
+                });
                 const result = await cachedAuth.getUser('uid-1');
                 expect(result.data).toBeNull();
                 expect(result.error?.cause).toBe(failure);
@@ -860,11 +985,10 @@ describe('FirebaseAdminAuth', () => {
             'looks up %s using the existing batch helper',
             async (providerId, uid, request) => {
                 const fetchFn = vi.fn();
-                const admin = new FirebaseAdminAuth(
-                    serviceAccountKey,
-                    'tenant',
-                    fetchFn
-                );
+                const admin = new FirebaseAdminAuth(serviceAccountKey, {
+                    tenantId: 'tenant',
+                    fetch: fetchFn
+                });
                 mockedGetToken.mockResolvedValue({
                     data: mockGoogleTokenResponse,
                     error: null
@@ -959,11 +1083,10 @@ describe('FirebaseAdminAuth', () => {
             'generates a link with settings %j',
             async (settings) => {
                 const fetchFn = vi.fn();
-                const admin = new FirebaseAdminAuth(
-                    serviceAccountKey,
-                    'tenant',
-                    fetchFn
-                );
+                const admin = new FirebaseAdminAuth(serviceAccountKey, {
+                    tenantId: 'tenant',
+                    fetch: fetchFn
+                });
                 mockedGetToken.mockResolvedValue({
                     data: mockGoogleTokenResponse,
                     error: null
@@ -1066,11 +1189,10 @@ describe('FirebaseAdminAuth', () => {
         });
         it('uses the existing update helper with tenant and custom fetch', async () => {
             const customFetch = vi.fn<typeof fetch>();
-            const instance = new FirebaseAdminAuth(
-                serviceAccountKey,
-                'tenant',
-                customFetch
-            );
+            const instance = new FirebaseAdminAuth(serviceAccountKey, {
+                tenantId: 'tenant',
+                fetch: customFetch
+            });
             const setCustomUserClaimsResult =
                 await instance.setCustomUserClaims('uid', { role: 'editor' });
             expect(setCustomUserClaimsResult).toEqual({
@@ -1126,12 +1248,9 @@ describe('FirebaseAdminAuth', () => {
                 getCache: vi.fn().mockResolvedValue(mockGoogleTokenResponse),
                 setCache: vi.fn()
             };
-            const instance = new FirebaseAdminAuth(
-                serviceAccountKey,
-                undefined,
-                undefined,
+            const instance = new FirebaseAdminAuth(serviceAccountKey, {
                 cache
-            );
+            });
             const setCustomUserClaimsResult6 =
                 await instance.setCustomUserClaims('uid', {});
             expect(setCustomUserClaimsResult6.error).toBeNull();
@@ -1234,11 +1353,10 @@ describe('FirebaseAdminAuth', () => {
         });
         it('looks up a phone number and returns a converted user record', async () => {
             const customFetch = vi.fn<typeof fetch>();
-            const instance = new FirebaseAdminAuth(
-                serviceAccountKey,
-                'tenant',
-                customFetch
-            );
+            const instance = new FirebaseAdminAuth(serviceAccountKey, {
+                tenantId: 'tenant',
+                fetch: customFetch
+            });
             const result = await instance.getUserByPhoneNumber('+15555550100');
             expect(result.error).toBeNull();
             expect(result.data?.uid).toBe('uid-1');
@@ -1272,11 +1390,10 @@ describe('FirebaseAdminAuth', () => {
         );
         it('deletes a batch with tenant, custom fetch, counts, and indexed errors', async () => {
             const customFetch = vi.fn<typeof fetch>();
-            const instance = new FirebaseAdminAuth(
-                serviceAccountKey,
-                'tenant',
-                customFetch
-            );
+            const instance = new FirebaseAdminAuth(serviceAccountKey, {
+                tenantId: 'tenant',
+                fetch: customFetch
+            });
             vi.mocked(deleteAccountsAdmin).mockResolvedValue({
                 data: { errors: [{ index: 1, message: 'failure' }] },
                 error: null
@@ -1326,11 +1443,10 @@ describe('FirebaseAdminAuth', () => {
         });
         it('merges local and server import failures using original indices', async () => {
             const customFetch = vi.fn<typeof fetch>();
-            const instance = new FirebaseAdminAuth(
-                serviceAccountKey,
-                'tenant',
-                customFetch
-            );
+            const instance = new FirebaseAdminAuth(serviceAccountKey, {
+                tenantId: 'tenant',
+                fetch: customFetch
+            });
             vi.mocked(importAccountsAdmin).mockResolvedValue({
                 data: { error: [{ index: 1, message: 'DUPLICATE_LOCAL_ID' }] },
                 error: null
@@ -1367,6 +1483,58 @@ describe('FirebaseAdminAuth', () => {
             expect(mockedGetToken).not.toHaveBeenCalled();
             expect(importAccountsAdmin).not.toHaveBeenCalled();
         });
+        it.each([true, false])(
+            'forwards allowOverwrite=%s in one import request',
+            async (allowOverwrite) => {
+                const { error } = await auth.importUsers([{ uid: 'one' }], {
+                    allowOverwrite
+                });
+                expect(error).toBeNull();
+                expect(importAccountsAdmin).toHaveBeenCalledExactlyOnceWith(
+                    'test-project',
+                    { users: [{ localId: 'one' }], allowOverwrite },
+                    'test-access-token',
+                    undefined,
+                    undefined
+                );
+            }
+        );
+        it.each([true, false])(
+            'forwards sanityCheck=%s in one import request',
+            async (sanityCheck) => {
+                const { error } = await auth.importUsers([{ uid: 'one' }], {
+                    sanityCheck
+                });
+                expect(error).toBeNull();
+                expect(importAccountsAdmin).toHaveBeenCalledExactlyOnceWith(
+                    'test-project',
+                    { users: [{ localId: 'one' }], sanityCheck },
+                    'test-access-token',
+                    undefined,
+                    undefined
+                );
+            }
+        );
+        it('rejects invalid sanity checks before requesting credentials', async () => {
+            const { error, data } = await auth.importUsers([{ uid: 'one' }], {
+                // @ts-expect-error Sanity checks require a boolean.
+                sanityCheck: 'true'
+            });
+            expect(error).toBeInstanceOf(Error);
+            expect(data).toBeNull();
+            expect(mockedGetToken).not.toHaveBeenCalled();
+            expect(importAccountsAdmin).not.toHaveBeenCalled();
+        });
+        it('rejects invalid overwrite settings before requesting credentials', async () => {
+            const { error, data } = await auth.importUsers([{ uid: 'one' }], {
+                // @ts-expect-error Overwrite requires a boolean.
+                allowOverwrite: 'true'
+            });
+            expect(error).toBeInstanceOf(Error);
+            expect(data).toBeNull();
+            expect(mockedGetToken).not.toHaveBeenCalled();
+            expect(importAccountsAdmin).not.toHaveBeenCalled();
+        });
         it('sends the selected hashing configuration with password imports', async () => {
             await auth.importUsers(
                 [{ uid: 'uid', passwordHash: new Uint8Array([1]) }],
@@ -1388,12 +1556,9 @@ describe('FirebaseAdminAuth', () => {
                 getCache: vi.fn().mockResolvedValue(mockGoogleTokenResponse),
                 setCache: vi.fn()
             };
-            const instance = new FirebaseAdminAuth(
-                serviceAccountKey,
-                undefined,
-                undefined,
+            const instance = new FirebaseAdminAuth(serviceAccountKey, {
                 cache
-            );
+            });
             const getUserByPhoneNumberResult3 =
                 await instance.getUserByPhoneNumber('+15555550100');
             expect(getUserByPhoneNumberResult3.error).toBeNull();
@@ -1488,13 +1653,37 @@ describe('FirebaseAdminAuth', () => {
                 error: null
             });
         });
+        it('looks up initial emails in one request and preserves multiple matches', async () => {
+            vi.mocked(getAccountsInfo).mockResolvedValue({
+                error: null,
+                data: {
+                    users: [
+                        { localId: 'one', initialEmail: 'old@example.com' },
+                        { localId: 'two', initialEmail: 'old@example.com' }
+                    ]
+                }
+            });
+            const { error, data } = await auth.getUsers([
+                { initialEmail: 'old@example.com' }
+            ]);
+            expect(error).toBeNull();
+            expect(data?.users.map((user) => user.uid)).toEqual(['one', 'two']);
+            expect(data?.notFound).toEqual([]);
+            expect(getAccountsInfo).toHaveBeenCalledTimes(1);
+            expect(getAccountsInfo).toHaveBeenCalledWith(
+                { initialEmail: ['old@example.com'] },
+                'test-access-token',
+                'test-project',
+                undefined,
+                undefined
+            );
+        });
         it('returns records and unmatched identifiers using one batch request', async () => {
             const customFetch = vi.fn<typeof fetch>();
-            const instance = new FirebaseAdminAuth(
-                serviceAccountKey,
-                'tenant',
-                customFetch
-            );
+            const instance = new FirebaseAdminAuth(serviceAccountKey, {
+                tenantId: 'tenant',
+                fetch: customFetch
+            });
             const ids = [{ uid: 'uid' }, { email: 'missing@example.com' }];
             vi.mocked(getAccountsInfo).mockResolvedValue({
                 data: { users: [{ localId: 'uid' }] },
@@ -1543,12 +1732,9 @@ describe('FirebaseAdminAuth', () => {
                 getCache: vi.fn().mockResolvedValue(mockGoogleTokenResponse),
                 setCache: vi.fn()
             };
-            const instance = new FirebaseAdminAuth(
-                serviceAccountKey,
-                undefined,
-                undefined,
+            const instance = new FirebaseAdminAuth(serviceAccountKey, {
                 cache
-            );
+            });
             const getUsersResult5 = await instance.getUsers([{ uid: 'uid' }]);
             expect(getUsersResult5.error).toBeNull();
             expect(mockedGetToken).not.toHaveBeenCalled();
@@ -1636,11 +1822,10 @@ describe('FirebaseAdminAuth', () => {
 
         it('creates a user and reads the full record with the same credentials', async () => {
             const customFetch = vi.fn<typeof fetch>();
-            const instance = new FirebaseAdminAuth(
-                serviceAccountKey,
-                'tenant',
-                customFetch
-            );
+            const instance = new FirebaseAdminAuth(serviceAccountKey, {
+                tenantId: 'tenant',
+                fetch: customFetch
+            });
             const result = await instance.createUser({
                 email: 'test@example.com',
                 photoURL: 'https://example.com/photo',
@@ -1898,11 +2083,10 @@ describe('FirebaseAdminAuth', () => {
 
         it('forwards pagination, tenant, and custom fetch to the endpoint', async () => {
             const customFetch = vi.fn<typeof fetch>();
-            const instance = new FirebaseAdminAuth(
-                serviceAccountKey,
-                'tenant',
-                customFetch
-            );
+            const instance = new FirebaseAdminAuth(serviceAccountKey, {
+                tenantId: 'tenant',
+                fetch: customFetch
+            });
             const listUsersResult = await instance.listUsers(25, 'opaque+/=');
             expect(listUsersResult).toEqual({
                 data: { users: [] },
@@ -1983,12 +2167,9 @@ describe('FirebaseAdminAuth', () => {
                 getCache: vi.fn().mockResolvedValue(mockGoogleTokenResponse),
                 setCache: vi.fn()
             };
-            const instance = new FirebaseAdminAuth(
-                serviceAccountKey,
-                undefined,
-                undefined,
+            const instance = new FirebaseAdminAuth(serviceAccountKey, {
                 cache
-            );
+            });
             const listUsersResult5 = await instance.listUsers();
             expect(listUsersResult5.error).toBeNull();
             expect(mockedGetToken).not.toHaveBeenCalled();
@@ -2389,11 +2570,10 @@ describe('FirebaseAdminAuth', () => {
         };
         it('returns the generated link and forwards credentials, settings, tenant and fetch', async () => {
             const fetchFn = vi.fn();
-            const admin = new FirebaseAdminAuth(
-                serviceAccountKey,
-                'tenant',
-                fetchFn
-            );
+            const admin = new FirebaseAdminAuth(serviceAccountKey, {
+                tenantId: 'tenant',
+                fetch: fetchFn
+            });
             mockedGetToken.mockResolvedValue({
                 data: mockGoogleTokenResponse,
                 error: null
@@ -2581,11 +2761,10 @@ describe('FirebaseAdminAuth', () => {
             'accepts boundary lifetime %s and forwards tenant and fetch',
             async (expiresIn) => {
                 const fetchFn = vi.fn();
-                const admin = new FirebaseAdminAuth(
-                    serviceAccountKey,
-                    'tenant',
-                    fetchFn
-                );
+                const admin = new FirebaseAdminAuth(serviceAccountKey, {
+                    tenantId: 'tenant',
+                    fetch: fetchFn
+                });
                 mockedGetToken.mockResolvedValue({
                     data: mockGoogleTokenResponse,
                     error: null
@@ -3073,4 +3252,284 @@ describe('FirebaseAdminAuth', () => {
             expect(result.error).toBeNull();
         });
     });
+});
+
+describe('Identity writes without readback', () => {
+    it('creates before setting prevalidated claims and reports partial failures with the UID', async () => {
+        const fetchFn = vi.fn();
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            tenantId: 'tenant',
+            fetch: fetchFn,
+            emulatorHost: null
+        });
+        const create = vi.mocked(createAccountAdmin);
+        const update = vi.mocked(updateAccountAdmin);
+        create.mockResolvedValue({
+            error: null,
+            data: { localId: 'generated' }
+        });
+        update.mockResolvedValue({
+            error: null,
+            data: { localId: 'generated' }
+        });
+        const invalid = await auth._writeIdentityUser(undefined, {
+            customClaims: { sub: 'reserved' }
+        });
+        expect(invalid.error).toBeInstanceOf(Error);
+        expect(create).not.toHaveBeenCalled();
+        for (const customClaims of [{ role: 'editor' }, {}, null]) {
+            const result = await auth._writeIdentityUser(undefined, {
+                email: 'a@example.com',
+                customClaims
+            });
+            expect(result).toEqual({ error: null, data: { uid: 'generated' } });
+            expect(create).toHaveBeenLastCalledWith(
+                serviceAccountKey.project_id,
+                { email: 'a@example.com' },
+                mockGoogleTokenResponse.access_token,
+                fetchFn,
+                'tenant'
+            );
+            expect(update).toHaveBeenLastCalledWith(
+                serviceAccountKey.project_id,
+                'generated',
+                { customAttributes: JSON.stringify(customClaims ?? {}) },
+                mockGoogleTokenResponse.access_token,
+                fetchFn,
+                'tenant'
+            );
+        }
+        expect(create.mock.invocationCallOrder[0]).toBeLessThan(
+            update.mock.invocationCallOrder[0]!
+        );
+        const failure = new Error('denied');
+        update.mockResolvedValueOnce({ error: failure, data: null });
+        const partial = await auth._writeIdentityUser(undefined, {
+            customClaims: {}
+        });
+        expect(partial.data).toBeNull();
+        expect(partial.error).toMatchObject({
+            context: { uid: 'generated' },
+            cause: failure
+        });
+        expect(partial.error?.message).toContain('was created');
+        update.mockRejectedValueOnce(failure);
+        const thrown = await auth._writeIdentityUser(undefined, {
+            customClaims: {}
+        });
+        expect(thrown.error).toMatchObject({
+            context: { uid: 'generated' },
+            cause: failure
+        });
+        update.mockClear();
+        create.mockResolvedValueOnce({ error: failure, data: null });
+        const denied = await auth._writeIdentityUser(undefined, {
+            customClaims: {}
+        });
+        expect(denied).toEqual({ error: failure, data: null });
+        expect(update).not.toHaveBeenCalled();
+        expect(getAccountsInfo).not.toHaveBeenCalled();
+    });
+    it('combines profile, claims, and timestamps in one account write', async () => {
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            emulatorHost: null
+        });
+        vi.mocked(updateAccountAdmin).mockResolvedValue({
+            error: null,
+            data: { localId: 'one' }
+        });
+        const { error, data } = await auth._writeIdentityUser('one', {
+            displayName: 'Sam',
+            customClaims: { admin: true },
+            metadata: { lastSignInTime: '2024-01-01T00:00:00Z' }
+        });
+        expect(error).toBeNull();
+        expect(data).toEqual({ uid: 'one' });
+        expect(updateAccountAdmin).toHaveBeenCalledExactlyOnceWith(
+            serviceAccountKey.project_id,
+            'one',
+            {
+                displayName: 'Sam',
+                customAttributes: '{"admin":true}',
+                lastLoginAt: '1704067200000'
+            },
+            mockGoogleTokenResponse.access_token,
+            undefined,
+            undefined
+        );
+        expect(getAccountInfo).not.toHaveBeenCalled();
+        expect(getAccountsInfo).not.toHaveBeenCalled();
+    });
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockedGetToken.mockResolvedValue({
+            error: null,
+            data: mockGoogleTokenResponse
+        });
+    });
+    it('creates or updates using one write and forwards tenant and fetch', async () => {
+        const fetchFn = vi.fn();
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            tenantId: 'tenant',
+            fetch: fetchFn,
+            emulatorHost: null
+        });
+        vi.mocked(createAccountAdmin).mockResolvedValue({
+            error: null,
+            data: { localId: 'one' }
+        });
+        const created = await auth._writeIdentityUser(undefined, {
+            uid: 'one',
+            email: 'a@example.com'
+        });
+        expect(created).toEqual({ error: null, data: { uid: 'one' } });
+        expect(createAccountAdmin).toHaveBeenCalledExactlyOnceWith(
+            serviceAccountKey.project_id,
+            { localId: 'one', email: 'a@example.com' },
+            mockGoogleTokenResponse.access_token,
+            fetchFn,
+            'tenant'
+        );
+        vi.mocked(updateAccountAdmin).mockResolvedValue({
+            error: null,
+            data: { localId: 'one' }
+        });
+        const updated = await auth._writeIdentityUser('one', {
+            disabled: true
+        });
+        expect(updated).toEqual({ error: null, data: { uid: 'one' } });
+        expect(updateAccountAdmin).toHaveBeenCalledExactlyOnceWith(
+            serviceAccountKey.project_id,
+            'one',
+            { disableUser: true },
+            mockGoogleTokenResponse.access_token,
+            fetchFn,
+            'tenant'
+        );
+        expect(getAccountInfo).not.toHaveBeenCalled();
+        expect(getAccountsInfo).not.toHaveBeenCalled();
+    });
+    it('rejects invalid data and handles credential and endpoint failures without retry', async () => {
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            emulatorHost: null
+        });
+        const invalidUid = await auth._writeIdentityUser('', {});
+        const invalidData = await auth._writeIdentityUser('one', {
+            customClaims: { sub: 'bad' }
+        });
+        expect(invalidUid.error).not.toBeNull();
+        expect(invalidData.error).not.toBeNull();
+        expect(mockedGetToken).not.toHaveBeenCalled();
+        const failure = new Error('failed');
+        const token = vi.spyOn(
+            auth as unknown as { getCachedToken(): Promise<unknown> },
+            'getCachedToken'
+        );
+        token.mockResolvedValueOnce({ error: failure, data: null } as never);
+        const denied = await auth._writeIdentityUser('one', {});
+        expect(denied.error).toBe(failure);
+        token.mockResolvedValueOnce({ error: null, data: {} } as never);
+        const missing = await auth._writeIdentityUser('one', {});
+        expect(missing.error).not.toBeNull();
+        vi.mocked(updateAccountAdmin).mockResolvedValueOnce({
+            error: failure,
+            data: null
+        });
+        const failed = await auth._writeIdentityUser('one', {});
+        expect(failed.error).toBe(failure);
+        vi.mocked(updateAccountAdmin).mockResolvedValueOnce({
+            error: null,
+            data: { localId: 'other' }
+        });
+        const wrongUid = await auth._writeIdentityUser('one', {});
+        expect(wrongUid.error).not.toBeNull();
+        vi.mocked(updateAccountAdmin).mockRejectedValueOnce(failure);
+        const thrown = await auth._writeIdentityUser('one', {});
+        expect(thrown.error).toBe(failure);
+        expect(updateAccountAdmin).toHaveBeenCalledTimes(3);
+    });
+});
+
+it('sets existing UID profiles with no create fallback or readback', async () => {
+    vi.clearAllMocks();
+    mockedGetToken.mockResolvedValue({
+        error: null,
+        data: mockGoogleTokenResponse
+    });
+    const auth = new FirebaseAdminAuth(serviceAccountKey, {
+        emulatorHost: null
+    });
+    vi.mocked(updateAccountAdmin).mockResolvedValueOnce({
+        error: null,
+        data: { localId: 'one' }
+    });
+    const result = await auth._writeIdentityUser(
+        'one',
+        { displayName: 'Sam' },
+        'set'
+    );
+    expect(result).toEqual({ error: null, data: { uid: 'one' } });
+    expect(updateAccountAdmin).toHaveBeenCalledExactlyOnceWith(
+        serviceAccountKey.project_id,
+        'one',
+        {
+            displayName: 'Sam',
+            disableUser: false,
+            emailVerified: false,
+            deleteAttribute: ['PHOTO_URL', 'EMAIL'],
+            deleteProvider: ['phone'],
+            customAttributes: '{}',
+            createdAt: '0',
+            lastLoginAt: '0'
+        },
+        mockGoogleTokenResponse.access_token,
+        undefined,
+        undefined
+    );
+    const error = new FirebaseEdgeError({
+        code: 'auth/user-not-found',
+        message: 'Missing user'
+    });
+    vi.mocked(updateAccountAdmin).mockResolvedValueOnce({ error, data: null });
+    const missing = await auth._writeIdentityUser('missing', {}, 'set');
+    expect(missing).toEqual({ error, data: null });
+    const invalid = await auth._writeIdentityUser(undefined, {}, 'set');
+    expect(invalid.error).not.toBeNull();
+    expect(updateAccountAdmin).toHaveBeenCalledTimes(2);
+    expect(createAccountAdmin).not.toHaveBeenCalled();
+    expect(getAccountInfo).not.toHaveBeenCalled();
+    expect(getAccountsInfo).not.toHaveBeenCalled();
+});
+
+it('sends a dedicated metadata update without readback', async () => {
+    vi.clearAllMocks();
+    mockedGetToken.mockResolvedValue({
+        error: null,
+        data: mockGoogleTokenResponse
+    });
+    vi.mocked(updateAccountAdmin).mockResolvedValue({
+        error: null,
+        data: { localId: 'one' }
+    });
+    const auth = new FirebaseAdminAuth(serviceAccountKey, {
+        emulatorHost: null
+    });
+    const { error } = await auth._writeIdentityUser(
+        'one',
+        { creationTime: '2020-01-01T00:00:00Z' },
+        'metadata'
+    );
+    expect(error).toBeNull();
+    expect(updateAccountAdmin).toHaveBeenCalledExactlyOnceWith(
+        serviceAccountKey.project_id,
+        'one',
+        {
+            createdAt: '1577836800000'
+        },
+        mockGoogleTokenResponse.access_token,
+        undefined,
+        undefined
+    );
+    expect(getAccountInfo).not.toHaveBeenCalled();
+    expect(getAccountsInfo).not.toHaveBeenCalled();
 });

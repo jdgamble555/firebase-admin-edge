@@ -202,17 +202,36 @@ export function getStorage(server: { storage: Storage }): Storage {
     return server.storage;
 }
 
+export interface StorageOptions {
+    bucketName?: string;
+    fetch?: typeof globalThis.fetch;
+    cache?: CacheConfig;
+    cacheName?: string;
+    retryOptions?: StorageRetryOptions;
+}
+
 /** Firebase Admin-style references and lower-level edge Storage operations. */
 export class Storage {
     private readonly fetch: typeof globalThis.fetch;
+    readonly bucketName?: string;
+    private readonly cache?: CacheConfig;
+    private readonly cacheName: string;
+
     constructor(
         private readonly serviceAccount: ServiceAccount,
-        readonly bucketName?: string,
-        fetch: typeof globalThis.fetch = globalThis.fetch,
-        private readonly cache?: CacheConfig,
-        private readonly cacheName = '__cache',
-        retryOptions?: StorageRetryOptions
+        options: StorageOptions = {}
     ) {
+        const {
+            bucketName,
+            fetch = globalThis.fetch,
+            cache,
+            cacheName = '__cache',
+            retryOptions
+        } = options;
+        this.bucketName = bucketName;
+        this.cache = cache;
+        this.cacheName = cacheName;
+
         this.fetch = createStorageRetryFetch(fetch, retryOptions);
     }
 
@@ -227,14 +246,13 @@ export class Storage {
         const bound =
             name === this.bucketName
                 ? this
-                : new Storage(
-                      this.serviceAccount,
-                      name,
-                      this.fetch,
-                      this.cache,
-                      this.cacheName,
-                      { maxRetries: 0 }
-                  );
+                : new Storage(this.serviceAccount, {
+                      bucketName: name,
+                      fetch: this.fetch,
+                      cache: this.cache,
+                      cacheName: this.cacheName,
+                      retryOptions: { maxRetries: 0 }
+                  });
         return new Bucket(
             this,
             name!,
@@ -308,14 +326,13 @@ export class Storage {
         timeout?: number;
     }): Storage {
         const fetch = storageScopedFetch(this.fetch, options);
-        return new Storage(
-            this.serviceAccount,
-            this.bucketName,
+        return new Storage(this.serviceAccount, {
+            bucketName: this.bucketName,
             fetch,
-            this.cache,
-            this.cacheName,
-            { maxRetries: 0 }
-        );
+            cache: this.cache,
+            cacheName: this.cacheName,
+            retryOptions: { maxRetries: 0 }
+        });
     }
 
     /** @internal Authenticate reference requests using the same token cache. */

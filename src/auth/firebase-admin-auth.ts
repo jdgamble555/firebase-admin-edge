@@ -1,4 +1,15 @@
+import { buildIdentityMetadataRequest } from './identity-write.js';
+import type { UserMetadataRequest } from './user-import.js';
 import {
+    buildIdentityWriteRequest,
+    type IdentityCreateData,
+    type IdentityUpdateData,
+    type IdentitySetData,
+    type IdentityWriteResult
+} from './identity-write.js';
+import {
+    countAccounts,
+    queryAccounts,
     createAuthEmulatorFetch,
     manageAuthConfig,
     generateEmailActionLink,
@@ -80,6 +91,7 @@ import {
     type ListUsersResult
 } from './user-record.js';
 import type { UserRecord } from './user-record.js';
+import type { IdentityQueryOptions } from './identity-types.js';
 import {
     buildUserRequest,
     buildCustomClaimsRequest,
@@ -122,11 +134,89 @@ export interface SessionCookieOptions {
     expiresIn: number;
 }
 
+export interface FirebaseAdminAuthOptions extends AuthEmulatorOptions {
+    tenantId?: string;
+    fetch?: typeof globalThis.fetch;
+    cache?: CacheConfig;
+    cacheName?: string;
+}
+
 /**
  * Firebase Admin Authentication handler for edge environments.
  * Provides server-side authentication operations using service account credentials.
  */
 export class FirebaseAdminAuth {
+    /** Count accounts with the same native filter used by Identity queries. @internal */
+    async _countUsers(
+        filter?: IdentityQueryOptions['filter']
+    ): Promise<{ data: number; error: null } | { data: null; error: Error }> {
+        try {
+            const { error: tokenError, data: token } =
+                await this.getCachedToken();
+            if (tokenError) {
+                return { data: null, error: tokenError };
+            }
+            if (!token?.access_token) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            }
+            return await countAccounts(
+                token.access_token,
+                this.serviceAccountKey.project_id,
+                filter,
+                this.tenantId,
+                this.fetch
+            );
+        } catch (cause) {
+            return { data: null, error: ensureError(cause) };
+        }
+    }
+
+    /** Execute a validated Identity query using this client's token and tenant. @internal */
+    async _queryUsers(
+        options: IdentityQueryOptions
+    ): Promise<
+        { data: UserRecord[]; error: null } | { data: null; error: Error }
+    > {
+        try {
+            const { error: tokenError, data: token } =
+                await this.getCachedToken();
+            if (tokenError) {
+                return { data: null, error: tokenError };
+            }
+            if (!token?.access_token) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            }
+            const { error, data } = await queryAccounts(
+                token.access_token,
+                this.serviceAccountKey.project_id,
+                options,
+                this.tenantId,
+                this.fetch
+            );
+            if (error) {
+                return { data: null, error };
+            }
+            return { data: data.map(createUserRecord), error: null };
+        } catch (cause) {
+            return { data: null, error: ensureError(cause) };
+        }
+    }
+
+    readonly tenantId?: string;
+    private fetch?: typeof globalThis.fetch;
+    private cache?: CacheConfig;
+    private cacheName?: string;
+
     /** Verify a blocking-event JWT. Audience matching follows the SDK's substring convention. */
     async _verifyAuthBlockingToken(
         token: string,
@@ -220,14 +310,13 @@ export class FirebaseAdminAuth {
         this.tenants = new TenantManager(
             this.executeConfig.bind(this),
             (tenantId) =>
-                new FirebaseAdminAuth(
-                    this.serviceAccountKey,
+                new FirebaseAdminAuth(this.serviceAccountKey, {
                     tenantId,
-                    this.fetch,
-                    this.cache,
-                    this._cacheName,
-                    { emulatorHost: this.emulatorHost }
-                )
+                    fetch: this.fetch,
+                    cache: this.cache,
+                    cacheName: this._cacheName,
+                    emulatorHost: this.emulatorHost
+                })
         );
         return this.tenants;
     }
@@ -273,24 +362,26 @@ export class FirebaseAdminAuth {
      * Creates a new Firebase Admin Auth instance.
      *
      * @param serviceAccountKey Firebase service account credentials
-     * @param tenantId Optional tenant ID for multi-tenancy
-     * @param fetch Optional custom fetch implementation
-     * @param cache Optional cache implementation for token caching
-     * @param cacheName Optional cache key name (defaults to '__cache')
-     * @param options Auth emulator configuration; defaults to FIREBASE_AUTH_EMULATOR_HOST when set.
+     * @param options Optional constructor settings, including Auth emulator configuration.
      */
     constructor(
         private serviceAccountKey: ServiceAccount,
-        readonly tenantId?: string,
-        private fetch?: typeof globalThis.fetch,
-        private cache?: CacheConfig,
-        private cacheName?: string,
-        options: AuthEmulatorOptions = {}
+        options: FirebaseAdminAuthOptions = {}
     ) {
-        if (tenantId !== undefined) validateTenantId(tenantId);
+        const { tenantId, fetch, cache, cacheName } = options;
+        if (tenantId !== undefined) {
+            validateTenantId(tenantId);
+        }
+
+        this.tenantId = tenantId;
+        this.fetch = fetch;
+        this.cache = cache;
+        this.cacheName = cacheName;
+
         this.emulatorHost = resolveAuthEmulatorHost(options.emulatorHost);
-        if (this.emulatorHost)
+        if (this.emulatorHost) {
             this.fetch = createAuthEmulatorFetch(this.emulatorHost, this.fetch);
+        }
         this._cacheName = this.cacheName || this._cacheName;
     }
 
@@ -348,6 +439,130 @@ export class FirebaseAdminAuth {
             data: token,
             error: null
         };
+    }
+
+    /** @internal Write without fetching the user record afterward. */
+    async _writeIdentityUser(
+        uid: string | undefined,
+        properties:
+            | IdentityCreateData
+            | IdentityUpdateData
+            | IdentitySetData
+            | UserMetadataRequest,
+        mode: 'update' | 'set' | 'metadata' = 'update'
+    ): Promise<AdminResult<IdentityWriteResult>> {
+        if (mode !== 'update' && uid === undefined) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError({
+                    code: 'auth/invalid-argument',
+                    message: `${mode} requires an existing UID.`
+                })
+            };
+        }
+        if (uid !== undefined) {
+            const error = validateUserUid(uid);
+            if (error) {
+                return { error, data: null };
+            }
+        }
+        const { error: validationError, data: body } =
+            mode === 'metadata'
+                ? buildIdentityMetadataRequest(
+                      properties as UserMetadataRequest
+                  )
+                : buildIdentityWriteRequest(
+                      properties as
+                          | IdentityCreateData
+                          | IdentityUpdateData
+                          | IdentitySetData,
+                      uid === undefined ? 'create' : mode
+                  );
+        if (validationError) {
+            return { error: validationError, data: null };
+        }
+        try {
+            const { error: tokenError, data: token } =
+                await this.getCachedToken();
+            if (tokenError) {
+                return { error: tokenError, data: null };
+            }
+            if (!token?.access_token) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            }
+            const { customAttributes, ...createBody } = body!;
+            const { error, data } =
+                uid === undefined
+                    ? await createAccountAdmin(
+                          this.serviceAccountKey.project_id,
+                          createBody,
+                          token.access_token,
+                          this.fetch,
+                          this.tenantId
+                      )
+                    : await updateAccountAdmin(
+                          this.serviceAccountKey.project_id,
+                          uid,
+                          body!,
+                          token.access_token,
+                          this.fetch,
+                          this.tenantId
+                      );
+            if (error) {
+                return { error: ensureError(error), data: null };
+            }
+            if (
+                typeof data?.localId !== 'string' ||
+                !data.localId ||
+                (uid !== undefined && data.localId !== uid)
+            ) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError({
+                        code: 'auth/internal-error',
+                        message: 'Identity write returned no matching UID.'
+                    })
+                };
+            }
+            if (uid === undefined && customAttributes !== undefined) {
+                try {
+                    const { error: claimsError } = await updateAccountAdmin(
+                        this.serviceAccountKey.project_id,
+                        data.localId,
+                        { customAttributes },
+                        token.access_token,
+                        this.fetch,
+                        this.tenantId
+                    );
+                    if (claimsError) {
+                        throw claimsError;
+                    }
+                } catch (cause) {
+                    const error = ensureError(cause);
+                    return {
+                        data: null,
+                        error: new FirebaseEdgeError(
+                            {
+                                code:
+                                    error instanceof FirebaseEdgeError
+                                        ? error.code
+                                        : 'auth/internal-error',
+                                message: `User ${data.localId} was created, but setting custom claims failed: ${error.message}`
+                            },
+                            { cause: error, context: { uid: data.localId } }
+                        )
+                    };
+                }
+            }
+            return { error: null, data: { uid: data.localId } };
+        } catch (cause) {
+            return { error: ensureError(cause), data: null };
+        }
     }
 
     /** Create a user and return the complete user record. */

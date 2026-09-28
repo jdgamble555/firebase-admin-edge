@@ -98,6 +98,8 @@ local setup and the required Firebase configuration.
 
 Start with the guide for the feature you're adding:
 
+For fluent Firebase Auth user queries, see [Identity](docs/IDENTITY.md).
+
 | Guide                                                                          | What It Covers                                             |
 | ------------------------------------------------------------------------------ | ---------------------------------------------------------- |
 | [Firebase Edge Server](docs/FIREBASE_EDGE_SERVER.md)                           | App setup, sign-in, callbacks, and sessions                |

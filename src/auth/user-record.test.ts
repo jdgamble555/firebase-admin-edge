@@ -206,3 +206,31 @@ describe('createUserRecord', () => {
         expect(() => createUserRecord(user)).toThrow();
     });
 });
+
+it('matches initial emails independently of the current email and preserves all matches', () => {
+    const { users, notFound } = createGetUsersResult(
+        [
+            { initialEmail: 'old@example.com' },
+            { initialEmail: 'current@example.com' }
+        ],
+        {
+            users: [
+                {
+                    localId: 'one',
+                    email: 'current@example.com',
+                    initialEmail: 'old@example.com'
+                },
+                { localId: 'two', initialEmail: 'old@example.com' }
+            ]
+        }
+    );
+    expect(users).toHaveLength(2);
+    expect(users[0]?.initialEmail).toBe('old@example.com');
+    expect(users[0]?.toJSON()).toMatchObject({
+        initialEmail: 'old@example.com'
+    });
+    expect(notFound).toEqual([{ initialEmail: 'current@example.com' }]);
+    expect(createUserRecord({ localId: 'none' })).not.toHaveProperty(
+        'initialEmail'
+    );
+});

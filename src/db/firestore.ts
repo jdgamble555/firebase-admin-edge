@@ -133,8 +133,19 @@ export interface ReadOnlyTransactionOptions {
     readTime?: Timestamp;
 }
 
+export interface FirestoreOptions {
+    databaseId?: string;
+    fetch?: typeof globalThis.fetch;
+    cache?: CacheConfig;
+    cacheName?: string;
+}
+
 /** Service-account Firestore operations for edge runtimes. */
 export class Firestore {
+    private _databaseId: string;
+    private fetch?: typeof globalThis.fetch;
+    private cache?: CacheConfig;
+    private cacheName: string;
     private telemetry?: FirestoreOpenTelemetryOptions;
     /** @internal Share operation tracing across references, queries, and writes. */
     _trace<T>(name: string, operation: () => Promise<T>): Promise<T> {
@@ -255,10 +266,12 @@ export class Firestore {
                 : (this.referenceDatabases.get(key) ??
                   new Firestore(
                       { ...this.serviceAccountKey, project_id: match[1]! },
-                      match[2],
-                      this.fetch,
-                      this.cache,
-                      this.cacheName
+                      {
+                          databaseId: match[2],
+                          fetch: this.fetch,
+                          cache: this.cache,
+                          cacheName: this.cacheName
+                      }
                   ));
         if (db !== this) this.referenceDatabases.set(key, db);
         db.telemetry = this.telemetry;
@@ -789,21 +802,31 @@ export class Firestore {
     }
     constructor(
         private serviceAccountKey: ServiceAccount,
-        private _databaseId = '(default)',
-        private fetch?: typeof globalThis.fetch,
-        private cache?: CacheConfig,
-        private cacheName = '__cache'
+        options: FirestoreOptions = {}
     ) {
-        if (!serviceAccountKey?.project_id)
+        const {
+            databaseId = '(default)',
+            fetch,
+            cache,
+            cacheName = '__cache'
+        } = options;
+        if (!serviceAccountKey?.project_id) {
             throw new FirebaseEdgeError({
                 ...FirestoreErrorInfo.INVALID_ARGUMENT,
                 message: 'A service account project_id is required.'
             });
-        if (!_databaseId || _databaseId.includes('/'))
+        }
+        if (!databaseId || databaseId.includes('/')) {
             throw new FirebaseEdgeError({
                 ...FirestoreErrorInfo.INVALID_ARGUMENT,
                 message: 'A valid Firestore database ID is required.'
             });
+        }
+
+        this._databaseId = databaseId;
+        this.fetch = fetch;
+        this.cache = cache;
+        this.cacheName = cacheName;
     }
 
     collection(path: string): CollectionReference {

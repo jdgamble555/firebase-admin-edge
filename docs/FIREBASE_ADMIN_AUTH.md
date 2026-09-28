@@ -22,34 +22,54 @@ The examples below work with either instance.
 ## Auth emulator
 
 Set `FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099` before constructing the instance,
-or provide the sixth constructor argument explicitly:
+or set `emulatorHost` in the constructor options:
 
 ```ts
-const admin = new FirebaseAdminAuth(
-    serviceAccount,
-    undefined, // Tenant ID, if needed.
-    undefined, // Custom fetch.
-    undefined, // Token cache.
-    undefined, // Cache name.
-    { emulatorHost: '127.0.0.1:9099' }
-);
-
-const token = await admin.createCustomToken('local-user', { role: 'editor' });
-if (token.error) throw token.error;
-// Exchange token.data using an emulator-configured FirebaseAuth instance.
-
-const verified = await admin.verifyIdToken(emulatorIdToken, true);
-if (verified.error) throw verified.error;
-
-const session = await admin.createSessionCookie(emulatorIdToken, {
-    expiresIn: 60 * 60 * 1000
+const admin = new FirebaseAdminAuth(serviceAccount, {
+    emulatorHost: '127.0.0.1:9099'
 });
-if (session.error) throw session.error;
-const checkedSession = await admin.verifySessionCookie(session.data, true);
-if (checkedSession.error) throw checkedSession.error;
+
+const { error: tokenError, data: token } = await admin.createCustomToken(
+    'local-user',
+    { role: 'editor' }
+);
+if (tokenError) {
+    throw tokenError;
+}
+// Exchange token using an emulator-configured FirebaseAuth instance.
+
+const { error: verificationError } = await admin.verifyIdToken(
+    emulatorIdToken,
+    true
+);
+if (verificationError) {
+    throw verificationError;
+}
+
+const { error: sessionError, data: session } = await admin.createSessionCookie(
+    emulatorIdToken,
+    {
+        expiresIn: 60 * 60 * 1000
+    }
+);
+if (sessionError) {
+    throw sessionError;
+}
+
+const { error: sessionVerificationError } = await admin.verifySessionCookie(
+    session,
+    true
+);
+if (sessionVerificationError) {
+    throw sessionVerificationError;
+}
 
 const tenantAuth = admin.tenantManager().authForTenant('your-tenant-id');
-const tenantToken = await tenantAuth.createCustomToken('local-user');
+const { error: tenantError, data: tenantToken } =
+    await tenantAuth.createCustomToken('local-user');
+if (tenantError) {
+    throw tenantError;
+}
 ```
 
 Hosts use `host:port`, without a protocol or path; bracketed IPv6 is supported.
@@ -403,6 +423,28 @@ Records can include `metadata`, `providerData`, `customClaims`, `multiFactor`,
 `passwordHash`, and `passwordSalt`. A configured tenant scopes the import;
 an explicit record `tenantId` must match it.
 
+To overwrite existing accounts with matching UIDs, pass `allowOverwrite: true`.
+This is account overwrite, not a partial update. `false` rejects matching UIDs;
+omitting the option leaves the backend default unchanged. No hash configuration
+is required unless records include password hashes.
+
+`sanityCheck: true` enables backend checks for duplicate emails, duplicate
+federated IDs, and provider validity in the same request. Duplicates within the
+batch can reject the entire batch; conflicts with existing accounts reject the
+affected records. `false` skips these checks; omitting the option preserves the
+backend default.
+
+```ts
+const { error, data } = await admin.importUsers(users, {
+    allowOverwrite: true,
+    sanityCheck: true
+});
+if (error) {
+    throw error;
+}
+console.log(data.successCount, data.errors);
+```
+
 For password users, supply the existing hash bytes and the algorithm that created
 them. For example, `bcryptHashBytes` below is a `Uint8Array` containing a bcrypt
 hash exported from your existing system:
@@ -648,7 +690,9 @@ only the cookie's signature, expiration, and claims. Emulator mode always perfor
 the user lookup.
 
 The full constructor is
-`new FirebaseAdminAuth(serviceAccount, tenantId?, fetch?, cache?, cacheName?, options?)`.
+`new FirebaseAdminAuth(serviceAccount, options?)`.
+The exported `FirebaseAdminAuthOptions` type includes `tenantId`, `fetch`, `cache`,
+`cacheName`, and `emulatorHost`. Omitted settings use their defaults.
 A tenant ID selects a separate group of users within your project.
 The optional `fetch` lets you supply your own HTTP request function.
 
@@ -688,13 +732,28 @@ are returned by the calling auth method. Service accounts are isolated even when
 sharing a cache prefix; custom prefixes can further separate application caches:
 
 ```ts
-const cachedAdmin = new FirebaseAdminAuth(
-    serviceAccount,
-    undefined,
+const cachedAdmin = new FirebaseAdminAuth(serviceAccount, {
     fetch,
-    tokenCache,
-    `auth-token:${serviceAccount.project_id}:${serviceAccount.client_email}`
-);
-const page = await cachedAdmin.listUsers(100);
-if (page.error) console.error(page.error.message);
+    cache: tokenCache,
+    cacheName: `auth-token:${serviceAccount.project_id}:${serviceAccount.client_email}`
+});
+const { error, data: page } = await cachedAdmin.listUsers(100);
+if (error) {
+    console.error(error.message);
+}
+```
+
+### Initial-email batch lookup
+
+`getUsers()` also accepts initial-email identifiers. Matching records include the
+optional `initialEmail` field, which can differ from their current `email`.
+
+```ts
+const { error, data } = await firebaseServer.adminAuth.getUsers([
+    { initialEmail: 'original@example.com' }
+]);
+
+if (!error) {
+    console.log(data.users, data.notFound);
+}
 ```

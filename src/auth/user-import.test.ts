@@ -1,3 +1,4 @@
+import { buildUserMetadata } from './user-import.js';
 import { describe, expect, it } from 'vitest';
 import {
     buildImportHashOptions,
@@ -209,6 +210,104 @@ describe('buildImportUser', () => {
 });
 
 describe('prepareUserImport', () => {
+    it.each([true, false])(
+        'passes sanityCheck=%s independently or with overwrite and hashes',
+        (sanityCheck) => {
+            const options = { sanityCheck };
+            const { error, data } = prepareUserImport(
+                [{ uid: 'one' }],
+                options
+            );
+            expect(error).toBeNull();
+            expect(data?.body).toEqual({
+                users: [{ localId: 'one' }],
+                sanityCheck
+            });
+            expect(options).toEqual({ sanityCheck });
+
+            const { error: hashError, data: hashed } = prepareUserImport(
+                [{ uid: 'one', passwordHash: new Uint8Array([1]) }],
+                {
+                    sanityCheck,
+                    allowOverwrite: true,
+                    hash: { algorithm: 'BCRYPT' }
+                }
+            );
+            expect(hashError).toBeNull();
+            expect(hashed?.body).toMatchObject({
+                sanityCheck,
+                allowOverwrite: true,
+                hashAlgorithm: 'BCRYPT'
+            });
+        }
+    );
+
+    it('omits unspecified sanity checks and rejects non-boolean settings', () => {
+        for (const options of [undefined, {}, { sanityCheck: undefined }]) {
+            const { error, data } = prepareUserImport(
+                [{ uid: 'one' }],
+                options
+            );
+            expect(error).toBeNull();
+            expect(data?.body).not.toHaveProperty('sanityCheck');
+        }
+        for (const sanityCheck of [null, 'true', 1, {}, []]) {
+            const { error, data } = prepareUserImport([{ uid: 'one' }], {
+                sanityCheck
+            } as UserImportOptions);
+            expect(error?.message).toBe('sanityCheck must be a boolean.');
+            expect(data).toBeNull();
+        }
+    });
+
+    it.each([true, false])(
+        'passes allowOverwrite=%s with optional hash settings',
+        (allowOverwrite) => {
+            const options = { allowOverwrite };
+            const { error, data } = prepareUserImport(
+                [{ uid: 'one' }],
+                options
+            );
+            expect(error).toBeNull();
+            expect(data?.body).toEqual({
+                users: [{ localId: 'one' }],
+                allowOverwrite
+            });
+            expect(options).toEqual({ allowOverwrite });
+
+            const { error: hashError, data: hashed } = prepareUserImport(
+                [{ uid: 'one', passwordHash: new Uint8Array([1]) }],
+                { allowOverwrite, hash: { algorithm: 'BCRYPT' } }
+            );
+            expect(hashError).toBeNull();
+            expect(hashed?.body).toMatchObject({
+                allowOverwrite,
+                hashAlgorithm: 'BCRYPT'
+            });
+
+            const { error: missingHash } = prepareUserImport(
+                [{ uid: 'one', passwordHash: new Uint8Array([1]) }],
+                options
+            );
+            expect(missingHash).toBeInstanceOf(Error);
+        }
+    );
+
+    it('omits unspecified overwrite settings and rejects non-boolean values', () => {
+        const { error, data } = prepareUserImport([{ uid: 'one' }], {
+            allowOverwrite: undefined
+        });
+        expect(error).toBeNull();
+        expect(data?.body).not.toHaveProperty('allowOverwrite');
+        for (const allowOverwrite of [null, 'true', 1, {}, []]) {
+            const { error, data } = prepareUserImport([{ uid: 'one' }], {
+                allowOverwrite
+            } as UserImportOptions);
+            expect(error?.message).toBe('allowOverwrite must be a boolean.');
+            expect(data).toBeNull();
+        }
+    });
+
     it('skips invalid users and preserves original indices for valid records', () => {
         const result = prepareUserImport([
             { uid: 'one' },
@@ -263,4 +362,24 @@ describe('prepareUserImport', () => {
             prepareUserImport(null as unknown as UserImportRecord[]).error
         ).not.toBeNull();
     });
+});
+
+it('converts supported metadata dates for imports and identity updates', () => {
+    expect(
+        buildUserMetadata({
+            creationTime: '1970-01-01T00:00:00Z',
+            lastSignInTime: '2020-01-01T00:00:00Z'
+        })
+    ).toEqual({ createdAt: 0, lastLoginAt: 1577836800000 });
+    expect(buildUserMetadata({ creationTime: undefined })).toEqual({});
+    for (const metadata of [
+        null,
+        [],
+        'bad',
+        { creationTime: 42 },
+        { lastSignInTime: 'invalid' },
+        { lastRefreshTime: '2020-01-01' }
+    ]) {
+        expect(() => buildUserMetadata(metadata as never)).toThrow();
+    }
 });

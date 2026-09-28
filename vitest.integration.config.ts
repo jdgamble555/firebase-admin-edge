@@ -5,10 +5,12 @@ import { defineConfig } from 'vitest/config';
 if (existsSync('.env')) loadEnvFile('.env');
 process.env.FIRESTORE_LIVE_TESTS = '1';
 process.env.STORAGE_LIVE_TESTS = '1';
+process.env.IDENTITY_LIVE_TESTS = '1';
 
 export default defineConfig({
     test: {
         include: [
+            'src/auth/identity.integration.test.ts',
             'src/db/firestore.integration.test.ts',
             'src/storage/storage.integration.test.ts'
         ],

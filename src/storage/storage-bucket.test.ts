@@ -9,8 +9,7 @@ it.each(['create', 'list'] as const)(
     async (operation) => {
         const scoped = new Storage(
             { project_id: 'project' } as ServiceAccount,
-            'bucket',
-            vi.fn()
+            { bucketName: 'bucket', fetch: vi.fn() }
         );
         const bucket = storage.bucket();
         vi.mocked(storage.scoped).mockReturnValue(scoped);
@@ -70,11 +69,10 @@ it.each(['create', 'list'] as const)(
 );
 
 it('keeps the requested billing scope when stopping a created channel', async () => {
-    const scoped = new Storage(
-        { project_id: 'project' } as ServiceAccount,
-        'bucket',
-        vi.fn()
-    );
+    const scoped = new Storage({ project_id: 'project' } as ServiceAccount, {
+        bucketName: 'bucket',
+        fetch: vi.fn()
+    });
     const bucket = storage.bucket();
     vi.mocked(storage.scoped).mockReturnValue(scoped);
     const action = vi
@@ -298,11 +296,10 @@ it('grants log delivery on the destination before enabling logging, retries conf
 });
 beforeEach(() => {
     vi.restoreAllMocks();
-    storage = new Storage(
-        { project_id: 'project' } as ServiceAccount,
-        'bucket',
-        vi.fn()
-    );
+    storage = new Storage({ project_id: 'project' } as ServiceAccount, {
+        bucketName: 'bucket',
+        fetch: vi.fn()
+    });
     vi.spyOn(Storage.prototype, 'scoped').mockImplementation(function (
         this: Storage
     ) {

@@ -379,3 +379,25 @@ describe('buildUserRequest', () => {
         ).toEqual({});
     });
 });
+
+it('builds initial-email batches and rejects invalid initial emails', () => {
+    expect(
+        buildUsersLookupRequest([{ initialEmail: 'old@example.com' }])
+    ).toEqual({
+        error: null,
+        data: { initialEmail: ['old@example.com'] }
+    });
+    for (const initialEmail of [
+        '',
+        'invalid',
+        'a'.repeat(250) + '@example.com',
+        null,
+        5
+    ]) {
+        const { error, data } = buildUsersLookupRequest([
+            { initialEmail } as UserIdentifier
+        ]);
+        expect(error).not.toBeNull();
+        expect(data).toBeNull();
+    }
+});

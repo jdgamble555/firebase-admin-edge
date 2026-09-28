@@ -32,16 +32,19 @@ The flat methods below remain available as lower-level operations.
 
 ## Setup
 
+Use `new Storage(serviceAccount, options?)`. The exported `StorageOptions` type
+includes `bucketName`, `fetch`, `cache`, `cacheName`, and `retryOptions`.
+The fetch implementation defaults to `globalThis.fetch` and the cache prefix to `__cache`.
+
 ```ts
 import { Storage } from 'firebase-admin-edge';
 
-const storage = new Storage(
-    serviceAccount,
-    'your-project.firebasestorage.app', // Use the actual bucket name.
-    fetch, // Optional custom fetch.
-    cache, // Optional package CacheConfig.
-    'my-app' // Optional cache key prefix.
-);
+const storage = new Storage(serviceAccount, {
+    bucketName: 'your-project.firebasestorage.app',
+    fetch,
+    cache,
+    cacheName: 'my-app'
+});
 ```
 
 Alternatively, set `firebaseConfig.storageBucket` when creating the edge server
@@ -555,7 +558,9 @@ Creates the configured bucket in the service account's project. `location` is
 required; the remaining settings match `updateBucketMetadata`.
 
 ```ts
-const newBucket = new Storage(serviceAccount, 'my-globally-unique-bucket');
+const newBucket = new Storage(serviceAccount, {
+    bucketName: 'my-globally-unique-bucket'
+});
 const { error, data } = await newBucket.createBucket({
     location: 'US',
     iamConfiguration: { uniformBucketLevelAccess: { enabled: true } }
@@ -646,21 +651,19 @@ console.log(data);
 Storage retries transient read failures and guarded writes with bounded exponential
 backoff. Defaults are two additional attempts, a 100 ms initial delay, and a
 2 second maximum delay. `Retry-After` is honored within that bound. Configure the
-sixth constructor argument; `maxRetries: 0` disables retries:
+`retryOptions` constructor option; `maxRetries: 0` disables retries:
 
 ```ts
-const storage = new Storage(
-    serviceAccount,
+const storage = new Storage(serviceAccount, {
     bucketName,
     fetch,
     cache,
-    undefined,
-    {
+    retryOptions: {
         maxRetries: 3,
         initialDelayMs: 200,
         maxDelayMs: 3000
     }
-);
+});
 ```
 
 Only replayable requests to the Storage API are retried. GET/HEAD, resumable status

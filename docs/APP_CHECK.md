@@ -14,21 +14,22 @@ const appCheck = new AppCheck(serviceAccount);
 // Or use firebaseServer.appCheck from createFirebaseEdgeServer().
 ```
 
-The constructor also accepts a custom fetch, a cache adapter, and a cache key prefix:
+Use `new AppCheck(serviceAccount, options?)` to customize initialization.
+The exported `AppCheckOptions` type includes `fetch`, `cache`, and `cacheName`.
+The fetch implementation defaults to `globalThis.fetch` and the cache prefix to `__cache`:
 
 ```ts
 import { AppCheck, TokenCache } from 'firebase-admin-edge';
 
 const tokens = new TokenCache();
-const appCheck = new AppCheck(
-    serviceAccount,
+const appCheck = new AppCheck(serviceAccount, {
     fetch,
-    {
+    cache: {
         getCache: (key) => tokens.get(key),
         setCache: (key, value, ttlMs) => tokens.set(key, value, ttlMs)
     },
-    'my-app'
-);
+    cacheName: 'my-app'
+});
 ```
 
 OAuth credentials use a service-account-specific cache key and expire a minute early.

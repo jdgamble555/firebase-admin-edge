@@ -8,12 +8,14 @@ import { FirebaseEdgeError } from './auth/errors.js';
 import { FirebaseEdgeServerErrorInfo } from './firebase-edge-errors.js';
 import { AppCheck } from './app-check/app-check.js';
 import { Storage } from './storage/storage.js';
+import { Identity } from './auth/identity.js';
 
 // Mock dependencies
 vi.mock('./auth/firebase-admin-auth.js');
 vi.mock('./db/firestore.js');
 vi.mock('./app-check/app-check.js');
 vi.mock('./storage/storage.js');
+vi.mock('./auth/identity.js');
 vi.mock('./auth/firebase-auth.js');
 vi.mock('./auth/firebase-jwt.js');
 
@@ -68,12 +70,38 @@ describe('createFirebaseEdgeServer', () => {
 
     it('exposes App Check with the configured service account', () => {
         expect(server.appCheck).toBeInstanceOf(AppCheck);
-        expect(AppCheck).toHaveBeenCalledWith(
-            mockServiceAccount,
-            globalThis.fetch,
-            undefined,
-            undefined
-        );
+        expect(AppCheck).toHaveBeenCalledWith(mockServiceAccount, {
+            fetch: globalThis.fetch,
+            cache: undefined,
+            cacheName: undefined
+        });
+    });
+
+    it('exposes Identity with tenant, cache, fetch and emulator configuration', () => {
+        const fetchFn = vi.fn();
+        const cache = { getCache: vi.fn(), setCache: vi.fn() };
+        const configured = createFirebaseEdgeServer({
+            serviceAccount: mockServiceAccount,
+            firebaseConfig: mockFirebaseConfig,
+            cookies: {
+                getSession: mockGetSession,
+                saveSession: mockSaveSession
+            },
+            redirectUri: 'http://localhost',
+            tenantId: 'tenant',
+            fetch: fetchFn,
+            cache,
+            cacheName: 'custom',
+            authEmulatorHost: 'localhost:9099'
+        });
+        expect(configured.identity).toBeInstanceOf(Identity);
+        expect(Identity).toHaveBeenLastCalledWith(mockServiceAccount, {
+            tenantId: 'tenant',
+            fetch: fetchFn,
+            cache,
+            cacheName: 'custom',
+            emulatorHost: 'localhost:9099'
+        });
     });
 
     it('exposes Storage with the configured bucket, fetch and cache', () => {
@@ -92,13 +120,12 @@ describe('createFirebaseEdgeServer', () => {
             cacheName: 'custom'
         });
         expect(configured.storage).toBeInstanceOf(Storage);
-        expect(Storage).toHaveBeenLastCalledWith(
-            mockServiceAccount,
-            mockFirebaseConfig.storageBucket,
-            customFetch,
+        expect(Storage).toHaveBeenLastCalledWith(mockServiceAccount, {
+            bucketName: mockFirebaseConfig.storageBucket,
+            fetch: customFetch,
             cache,
-            'custom'
-        );
+            cacheName: 'custom'
+        });
     });
 
     describe('shared callback handling', () => {
@@ -1283,25 +1310,27 @@ describe('createFirebaseEdgeServer', () => {
             expect(FirebaseAuth).toHaveBeenLastCalledWith(
                 mockFirebaseConfig,
                 'http://localhost',
-                undefined,
-                fetchFn,
-                { emulatorHost: 'localhost:9099' }
+                {
+                    tenantId: undefined,
+                    fetch: fetchFn,
+                    emulatorHost: 'localhost:9099'
+                }
             );
             expect(FirebaseAdminAuth).toHaveBeenLastCalledWith(
                 mockServiceAccount,
-                undefined,
-                fetchFn,
-                undefined,
-                undefined,
-                { emulatorHost: 'localhost:9099' }
+                {
+                    tenantId: undefined,
+                    fetch: fetchFn,
+                    cache: undefined,
+                    cacheName: undefined,
+                    emulatorHost: 'localhost:9099'
+                }
             );
-            expect(Firestore).toHaveBeenLastCalledWith(
-                mockServiceAccount,
-                undefined,
-                fetchFn,
-                undefined,
-                undefined
-            );
+            expect(Firestore).toHaveBeenLastCalledWith(mockServiceAccount, {
+                fetch: fetchFn,
+                cache: undefined,
+                cacheName: undefined
+            });
         });
         it('initializes firestore with the shared service account, fetch and cache', () => {
             const fetchFn = vi.fn();
@@ -1319,13 +1348,11 @@ describe('createFirebaseEdgeServer', () => {
                 cacheName: 'shared-token',
                 tenantId: 'auth-only'
             });
-            expect(Firestore).toHaveBeenLastCalledWith(
-                mockServiceAccount,
-                undefined,
-                fetchFn,
+            expect(Firestore).toHaveBeenLastCalledWith(mockServiceAccount, {
+                fetch: fetchFn,
                 cache,
-                'shared-token'
-            );
+                cacheName: 'shared-token'
+            });
             expect(result.firestore).toBeInstanceOf(Firestore);
         });
 
@@ -1419,17 +1446,21 @@ describe('createFirebaseEdgeServer', () => {
             expect(vi.mocked(FirebaseAuth)).toHaveBeenCalledWith(
                 mockFirebaseConfig,
                 'http://localhost',
-                'test-tenant-id',
-                globalThis.fetch,
-                { emulatorHost: null }
+                {
+                    tenantId: 'test-tenant-id',
+                    fetch: globalThis.fetch,
+                    emulatorHost: null
+                }
             );
             expect(vi.mocked(FirebaseAdminAuth)).toHaveBeenCalledWith(
                 mockServiceAccount,
-                'test-tenant-id',
-                globalThis.fetch,
-                undefined,
-                undefined,
-                { emulatorHost: null }
+                {
+                    tenantId: 'test-tenant-id',
+                    fetch: globalThis.fetch,
+                    cache: undefined,
+                    cacheName: undefined,
+                    emulatorHost: null
+                }
             );
         });
 
@@ -1449,17 +1480,21 @@ describe('createFirebaseEdgeServer', () => {
             expect(vi.mocked(FirebaseAuth)).toHaveBeenCalledWith(
                 mockFirebaseConfig,
                 'http://localhost',
-                undefined,
-                globalThis.fetch,
-                { emulatorHost: null }
+                {
+                    tenantId: undefined,
+                    fetch: globalThis.fetch,
+                    emulatorHost: null
+                }
             );
             expect(vi.mocked(FirebaseAdminAuth)).toHaveBeenCalledWith(
                 mockServiceAccount,
-                undefined,
-                globalThis.fetch,
-                undefined,
-                undefined,
-                { emulatorHost: null }
+                {
+                    tenantId: undefined,
+                    fetch: globalThis.fetch,
+                    cache: undefined,
+                    cacheName: undefined,
+                    emulatorHost: null
+                }
             );
         });
     });

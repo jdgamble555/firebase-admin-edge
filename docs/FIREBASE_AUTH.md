@@ -32,21 +32,27 @@ const auth = new FirebaseAuth(
 ## Auth emulator
 
 This class reads `FIREBASE_AUTH_EMULATOR_HOST` at construction. For runtimes
-without `process.env`, pass an explicit fifth constructor argument:
+without `process.env`, set `emulatorHost` in the constructor options:
 
 ```ts
 const auth = new FirebaseAuth(
     firebaseConfig,
     'http://localhost:5173/auth/callback',
-    undefined, // Tenant ID, if needed.
-    undefined, // Custom fetch.
     { emulatorHost: '127.0.0.1:9099' }
 );
-const custom = await emulatorAdmin.createCustomToken('local-user');
-if (custom.error) throw custom.error;
-const login = await auth.signInWithCustomToken(custom.data);
-if (login.error) throw login.error;
-console.log(login.data.idToken);
+
+const { error: tokenError, data: customToken } =
+    await emulatorAdmin.createCustomToken('local-user');
+if (tokenError) {
+    throw tokenError;
+}
+
+const { error: loginError, data: login } =
+    await auth.signInWithCustomToken(customToken);
+if (loginError) {
+    throw loginError;
+}
+console.log(login.idToken);
 ```
 
 Create `emulatorAdmin` using the [admin emulator example](FIREBASE_ADMIN_AUTH.md#auth-emulator).
@@ -76,7 +82,9 @@ if (error) {
 ```
 
 These methods do not save cookies for you.
-The full constructor is `new FirebaseAuth(config, callbackUrl, tenantId?, fetch?)`.
+The full constructor is `new FirebaseAuth(config, callbackUrl, options?)`.
+The exported `FirebaseAuthOptions` type includes `tenantId`, `fetch`, and
+`emulatorHost`. Omitted settings use their defaults.
 
 ## Provider credentials
 

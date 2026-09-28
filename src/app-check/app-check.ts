@@ -41,21 +41,38 @@ type AppCheckResult<T> =
     | { error: null; data: T }
     | { error: FirebaseEdgeError; data: null };
 
+export interface AppCheckOptions {
+    fetch?: typeof globalThis.fetch;
+    cache?: CacheConfig;
+    cacheName?: string;
+}
+
 export class AppCheck {
     private readonly keys: ReturnType<typeof createAppCheckKeyResolver>;
 
+    private readonly fetch: typeof globalThis.fetch;
+    private readonly cache?: CacheConfig;
+    private readonly cacheName: string;
+
     constructor(
         private readonly serviceAccount: ServiceAccount,
-        private readonly fetch: typeof globalThis.fetch = globalThis.fetch,
-        private readonly cache?: CacheConfig,
-        private readonly cacheName = '__cache'
+        options: AppCheckOptions = {}
     ) {
+        const {
+            fetch = globalThis.fetch,
+            cache,
+            cacheName = '__cache'
+        } = options;
         if (!serviceAccount?.project_id?.trim()) {
             throw new FirebaseEdgeError({
                 code: 'app-check/invalid-argument',
                 message: 'A service account project ID is required.'
             });
         }
+
+        this.fetch = fetch;
+        this.cache = cache;
+        this.cacheName = cacheName;
         this.keys = createAppCheckKeyResolver(fetch);
     }
 

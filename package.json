@@ -55,10 +55,10 @@
         "test": "vitest run",
         "dev": "vitest",
         "clean": "rimraf dist",
-        "local-release": "npm run format && changeset version && changeset publish",
+        "local-release": "npm run format && npm run changeset:version && npm run changeset:publish",
         "prepublishOnly": "npm run ci",
         "changeset": "changeset",
-        "changeset:version": "changeset version",
+        "changeset:version": "changeset version && prettier --write CHANGELOG.md package.json package-lock.json",
         "changeset:publish": "changeset publish",
         "test:integration": "vitest run --config vitest.integration.config.ts"
     },

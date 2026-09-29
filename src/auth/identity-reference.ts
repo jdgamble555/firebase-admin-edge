@@ -4,7 +4,10 @@ import type {
     IdentityWriteResult
 } from './identity-write.js';
 import type { UserMetadataRequest } from './user-import.js';
-import type { FirebaseAdminAuth } from './firebase-admin-auth.js';
+import type {
+    ActionCodeSettings,
+    FirebaseAdminAuth
+} from './firebase-admin-auth.js';
 import {
     buildUsersLookupRequest,
     buildCustomClaimsRequest,
@@ -88,6 +91,50 @@ export class IdentityReference<
     ) {
         const uid = this.requireUid();
         return this.auth._writeIdentityUser(uid, data, 'set');
+    }
+
+    /** Disable sign-in for this user. */
+    disable(this: IdentityReference<false, true, Claims>) {
+        return this.update({ disabled: true });
+    }
+
+    /** Enable sign-in for this user. */
+    enable(this: IdentityReference<false, true, Claims>) {
+        return this.update({ disabled: false });
+    }
+
+    /** Ask Firebase to send a password-reset email to this user. */
+    resetPassword(
+        this: IdentityReference<false, true, Claims>,
+        settings?: ActionCodeSettings
+    ) {
+        const uid = this.requireUid();
+        return this.sendPasswordResetEmail(uid, settings);
+    }
+
+    private async sendPasswordResetEmail(
+        uid: string,
+        settings?: ActionCodeSettings
+    ) {
+        const { error, data } = await readIdentityUser(this.auth, uid);
+        if (error) {
+            return { error, data: null };
+        }
+        if (!data.email) {
+            return {
+                error: new FirebaseEdgeError({
+                    code: 'auth/invalid-email',
+                    message:
+                        'Password reset requires a user with an email address.'
+                }),
+                data: null
+            };
+        }
+
+        return identityWriteResult(
+            uid,
+            this.auth._sendPasswordResetEmail(data.email, settings)
+        );
     }
 
     /** Custom-claims operations for a UID reference; accessing this performs no I/O. */
@@ -372,7 +419,7 @@ class IdentityClaimKey<
     }
 }
 
-/** Read one existing account for a claims or metadata operation. */
+/** Read one existing account for a UID reference operation. */
 async function readIdentityUser(
     auth: FirebaseAdminAuth,
     uid: string

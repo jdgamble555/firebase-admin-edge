@@ -361,6 +361,32 @@ export async function generateEmailActionLink(
     return { data: data.oobLink, error: null };
 }
 
+/** Send a password-reset email using admin credentials. @internal */
+export async function sendPasswordResetEmailAdmin(
+    projectId: string,
+    body: EmailActionRequest,
+    token: string,
+    fetchFn?: typeof globalThis.fetch,
+    tenantId?: string
+) {
+    const { error } = await restFetch<object, FirebaseRestError>(
+        createAdminIdentityURL(projectId, 'sendOobCode', true, tenantId),
+        {
+            body: {
+                ...body,
+                requestType: 'PASSWORD_RESET',
+                returnOobLink: false
+            },
+            bearerToken: token,
+            global: { fetch: fetchFn }
+        }
+    );
+    if (error) {
+        return { error: normalizeAdminEndpointError(error), data: null };
+    }
+    return { error: null, data: undefined };
+}
+
 /** Delete a validated batch, including enabled users. Missing users count as successes. */
 export async function deleteAccountsAdmin(
     projectId: string,

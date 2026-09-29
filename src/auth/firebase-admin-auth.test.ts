@@ -12,6 +12,7 @@ import {
     revokeRefreshTokens,
     manageAuthConfig,
     generateEmailActionLink,
+    sendPasswordResetEmailAdmin,
     deleteAccountsAdmin,
     importAccountsAdmin,
     getAccountsInfo,
@@ -46,6 +47,7 @@ vi.mock('./firebase-auth-endpoints.js', async (importOriginal) => {
         revokeRefreshTokens: vi.fn(),
         manageAuthConfig: vi.fn(),
         generateEmailActionLink: vi.fn(),
+        sendPasswordResetEmailAdmin: vi.fn(),
         deleteAccountsAdmin: vi.fn(),
         importAccountsAdmin: vi.fn(),
         getAccountsInfo: vi.fn(),
@@ -70,6 +72,105 @@ vi.mock('./google-oauth.js', () => ({
 }));
 
 const mockedGetToken = vi.mocked(getToken);
+
+describe('Identity password reset delivery', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('forwards validated settings, cached credentials, tenant and fetch', async () => {
+        const fetchFn = vi.fn();
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            tenantId: 'tenant',
+            fetch: fetchFn,
+            emulatorHost: null,
+            cache: {
+                getCache: vi.fn().mockResolvedValue(mockGoogleTokenResponse),
+                setCache: vi.fn()
+            }
+        });
+        vi.mocked(sendPasswordResetEmailAdmin).mockResolvedValue({
+            error: null,
+            data: undefined
+        });
+        const result = await auth._sendPasswordResetEmail(
+            'person@example.com',
+            { url: 'https://example.com/finish' }
+        );
+        expect(result).toEqual({ error: null, data: undefined });
+        expect(sendPasswordResetEmailAdmin).toHaveBeenCalledExactlyOnceWith(
+            serviceAccountKey.project_id,
+            {
+                requestType: 'PASSWORD_RESET',
+                email: 'person@example.com',
+                returnOobLink: true,
+                continueUrl: 'https://example.com/finish',
+                canHandleCodeInApp: false
+            },
+            mockGoogleTokenResponse.access_token,
+            fetchFn,
+            'tenant'
+        );
+        expect(generateEmailActionLink).not.toHaveBeenCalled();
+
+        await auth._sendPasswordResetEmail('person@example.com');
+        expect(sendPasswordResetEmailAdmin).toHaveBeenLastCalledWith(
+            serviceAccountKey.project_id,
+            {
+                requestType: 'PASSWORD_RESET',
+                email: 'person@example.com',
+                returnOobLink: true
+            },
+            mockGoogleTokenResponse.access_token,
+            fetchFn,
+            'tenant'
+        );
+    });
+
+    it('rejects invalid email and settings before authentication', async () => {
+        const auth = new FirebaseAdminAuth(serviceAccountKey);
+        const { error: emailError } =
+            await auth._sendPasswordResetEmail('invalid');
+        const { error: settingsError } = await auth._sendPasswordResetEmail(
+            'person@example.com',
+            { url: 'invalid' }
+        );
+        expect(emailError).toBeInstanceOf(Error);
+        expect(settingsError).toBeInstanceOf(Error);
+        expect(mockedGetToken).not.toHaveBeenCalled();
+        expect(sendPasswordResetEmailAdmin).not.toHaveBeenCalled();
+    });
+
+    it('stops on credential failures and returns endpoint and thrown errors', async () => {
+        const auth = new FirebaseAdminAuth(serviceAccountKey);
+        const failure = new Error('failed');
+        mockedGetToken.mockResolvedValue({ error: failure, data: null });
+        const failed = await auth._sendPasswordResetEmail('person@example.com');
+        expect(failed).toEqual({ error: failure, data: null });
+        mockedGetToken.mockResolvedValueOnce({
+            error: null,
+            data: { ...mockGoogleTokenResponse, access_token: '' }
+        });
+        const { error: missing } =
+            await auth._sendPasswordResetEmail('person@example.com');
+        expect(missing).toMatchObject({
+            code: FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED.code
+        });
+        expect(sendPasswordResetEmailAdmin).not.toHaveBeenCalled();
+
+        mockedGetToken.mockResolvedValue({
+            error: null,
+            data: mockGoogleTokenResponse
+        });
+        vi.mocked(sendPasswordResetEmailAdmin).mockResolvedValueOnce({
+            error: failure,
+            data: null
+        });
+        const denied = await auth._sendPasswordResetEmail('person@example.com');
+        expect(denied).toEqual({ error: failure, data: null });
+        vi.mocked(sendPasswordResetEmailAdmin).mockRejectedValueOnce(failure);
+        const thrown = await auth._sendPasswordResetEmail('person@example.com');
+        expect(thrown).toEqual({ error: failure, data: null });
+    });
+});
 
 describe('Identity count orchestration', () => {
     beforeEach(() => vi.clearAllMocks());

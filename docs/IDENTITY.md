@@ -731,6 +731,48 @@ profile fields. Omitted boolean fields reset to `false`. In contrast, omitted
 fields in `update()` are preserved. Returned `UserRecord` objects and the separate
 `adminAuth` API retain Firebase's `customClaims` name.
 
+### Password-reset emails and disabling accounts
+
+These methods require a single `byUid()` reference. `resetPassword(settings?)`
+reads the account's current email, then asks Firebase to send a password-reset
+email. It returns `{ error, data }`, with `{ uid }` in `data` on success.
+Missing users return `auth/user-not-found`, and accounts
+without an email return `auth/invalid-email`. Optional `ActionCodeSettings`
+configure the link in the email. The service account needs
+`firebaseauth.users.sendEmail`, as documented by the
+[admin email endpoint](https://docs.cloud.google.com/identity-platform/docs/reference/rest/v1/projects.accounts/sendOobCode).
+
+```ts
+const user = identity.users().byUid('existing-uid');
+const { error, data } = await user.resetPassword({
+    url: 'https://app.example.com/sign-in'
+});
+if (error) {
+    throw error;
+}
+console.log(data.uid);
+```
+
+`disable()` is equivalent to `update({ disabled: true })`: one write, no
+lookup, and `{ uid }` as the successful result. `enable()` works the same way
+with `disabled: false` to enable the account again.
+
+```ts
+const { error, data } = await identity.users().byUid('existing-uid').disable();
+if (error) {
+    throw error;
+}
+console.log(data.uid);
+```
+
+```ts
+const { error, data } = await identity.users().byUid('existing-uid').enable();
+if (error) {
+    throw error;
+}
+console.log(data.uid);
+```
+
 ### Password clearing and metadata updates
 
 ```ts

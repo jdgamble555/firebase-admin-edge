@@ -5,6 +5,7 @@ import {
     createAuthEmulatorFetch,
     manageAuthConfig,
     generateEmailActionLink,
+    sendPasswordResetEmailAdmin,
     deleteAccountsAdmin,
     importAccountsAdmin,
     getAccountsInfo,
@@ -648,6 +649,67 @@ describe('firebase-auth-endpoints', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+    });
+
+    describe('sendPasswordResetEmailAdmin', () => {
+        const body = {
+            requestType: 'PASSWORD_RESET',
+            email: 'person@example.com',
+            returnOobLink: true,
+            continueUrl: 'https://example.com/login'
+        } as const;
+
+        it.each([undefined, 'tenant'])(
+            'sends email rather than returning a link for tenant %s',
+            async (tenant) => {
+                vi.mocked(restFetch.restFetch).mockResolvedValue({
+                    data: { email: body.email },
+                    error: null
+                });
+                const result = await sendPasswordResetEmailAdmin(
+                    PROJECT_ID,
+                    body,
+                    ACCESS_TOKEN,
+                    mockFetch,
+                    tenant
+                );
+                expect(result).toEqual({ error: null, data: undefined });
+                expect(restFetch.restFetch).toHaveBeenCalledExactlyOnceWith(
+                    `https://identitytoolkit.googleapis.com/v1/projects/test-project${tenant ? '/tenants/tenant' : ''}/accounts:sendOobCode`,
+                    {
+                        body: { ...body, returnOobLink: false },
+                        bearerToken: ACCESS_TOKEN,
+                        global: { fetch: mockFetch }
+                    }
+                );
+                expect(body.returnOobLink).toBe(true);
+            }
+        );
+
+        it('maps Firebase errors and preserves transport errors', async () => {
+            vi.mocked(restFetch.restFetch).mockResolvedValueOnce({
+                data: null,
+                error: { error: { code: 400, message: 'EMAIL_NOT_FOUND' } }
+            });
+            const { error, data } = await sendPasswordResetEmailAdmin(
+                PROJECT_ID,
+                body,
+                ACCESS_TOKEN
+            );
+            expect(error).toBeInstanceOf(FirebaseEdgeError);
+            expect(data).toBeNull();
+            const failure = new Error('network');
+            vi.mocked(restFetch.restFetch).mockResolvedValueOnce({
+                data: null,
+                error: failure
+            });
+            const failed = await sendPasswordResetEmailAdmin(
+                PROJECT_ID,
+                body,
+                ACCESS_TOKEN
+            );
+            expect(failed).toEqual({ error: failure, data: null });
+        });
     });
 
     describe('generateEmailActionLink', () => {

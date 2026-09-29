@@ -4,6 +4,148 @@ import { IdentityReference } from './identity-reference.js';
 import { FirebaseAdminAuth } from './firebase-admin-auth.js';
 import type { ServiceAccount } from './firebase-types.js';
 
+it.each([
+    ['disable', true],
+    ['enable', false]
+] as const)(
+    '%s updates a UID reference once without a lookup',
+    async (method, disabled) => {
+        const auth = new FirebaseAdminAuth({
+            project_id: 'project'
+        } as ServiceAccount);
+        const write = vi
+            .spyOn(auth, '_writeIdentityUser')
+            .mockResolvedValue({ error: null, data: { uid: 'one' } });
+        const read = vi.spyOn(auth, 'getUsers');
+        const reference = new IdentityReference(
+            auth,
+            { uid: 'one' },
+            { uidReference: true }
+        );
+
+        const result = await reference[method]();
+        expect(result).toEqual({ error: null, data: { uid: 'one' } });
+        expect(write).toHaveBeenCalledExactlyOnceWith('one', { disabled });
+        expect(read).not.toHaveBeenCalled();
+
+        const failure = new Error('update denied');
+        write.mockResolvedValueOnce({ error: failure, data: null });
+        const failed = await reference[method]();
+        expect(failed).toEqual({ error: failure, data: null });
+    }
+);
+
+it('sends a password-reset email using the current email and optional settings', async () => {
+    const auth = new FirebaseAdminAuth({
+        project_id: 'project'
+    } as ServiceAccount);
+    const read = vi.spyOn(auth, 'getUsers').mockResolvedValue({
+        error: null,
+        data: {
+            users: [
+                createUserRecord({
+                    localId: 'one',
+                    email: 'current@example.com'
+                })
+            ],
+            notFound: []
+        }
+    });
+    const send = vi
+        .spyOn(auth, '_sendPasswordResetEmail')
+        .mockResolvedValue({ error: null, data: undefined });
+    const write = vi.spyOn(auth, '_writeIdentityUser');
+    const reference = new IdentityReference(
+        auth,
+        { uid: 'one' },
+        { uidReference: true }
+    );
+    const settings = { url: 'https://example.com/continue' };
+
+    const result = await reference.resetPassword(settings);
+    expect(result).toEqual({ error: null, data: { uid: 'one' } });
+    expect(read).toHaveBeenCalledExactlyOnceWith([{ uid: 'one' }]);
+    expect(send).toHaveBeenCalledExactlyOnceWith(
+        'current@example.com',
+        settings
+    );
+    expect(write).not.toHaveBeenCalled();
+
+    await reference.resetPassword();
+    expect(send).toHaveBeenLastCalledWith('current@example.com', undefined);
+    const failure = new Error('email sending denied');
+    send.mockResolvedValueOnce({ error: failure, data: null });
+    const failed = await reference.resetPassword();
+    expect(failed).toEqual({ error: failure, data: null });
+});
+
+it('stops password reset on missing users, missing email, and lookup failures', async () => {
+    const auth = new FirebaseAdminAuth({
+        project_id: 'project'
+    } as ServiceAccount);
+    const read = vi.spyOn(auth, 'getUsers').mockResolvedValue({
+        error: null,
+        data: { users: [], notFound: [{ uid: 'one' }] }
+    });
+    const send = vi.spyOn(auth, '_sendPasswordResetEmail');
+    const reference = new IdentityReference(
+        auth,
+        { uid: 'one' },
+        { uidReference: true }
+    );
+
+    const { error: missing } = await reference.resetPassword();
+    expect(missing).toMatchObject({ code: 'auth/user-not-found' });
+    read.mockResolvedValueOnce({
+        error: null,
+        data: { users: [createUserRecord({ localId: 'one' })], notFound: [] }
+    });
+    const { error: email } = await reference.resetPassword();
+    expect(email).toMatchObject({ code: 'auth/invalid-email' });
+
+    const failure = new Error('lookup failed');
+    read.mockResolvedValueOnce({ error: failure, data: null });
+    const failed = await reference.resetPassword();
+    expect(failed).toEqual({ error: failure, data: null });
+    read.mockRejectedValueOnce(failure);
+    const thrown = await reference.resetPassword();
+    expect(thrown).toEqual({ error: failure, data: null });
+    expect(send).not.toHaveBeenCalled();
+});
+
+it('requires a single UID mutation reference for disable, enable, and password reset', () => {
+    const auth = new FirebaseAdminAuth({
+        project_id: 'project'
+    } as ServiceAccount);
+    const read = vi.spyOn(auth, 'getUsers');
+    const write = vi.spyOn(auth, '_writeIdentityUser');
+    const send = vi.spyOn(auth, '_sendPasswordResetEmail');
+    for (const reference of [
+        new IdentityReference(auth, { uid: 'one' }),
+        new IdentityReference(auth, { email: 'a@example.com' }),
+        new IdentityReference(
+            auth,
+            { uid: 'one' },
+            { multiple: true, uidReference: true }
+        ),
+        new IdentityReference(
+            auth,
+            { email: 'a@example.com' },
+            { uidReference: true }
+        )
+    ]) {
+        // @ts-expect-error These references do not support UID mutations.
+        expect(() => reference.disable()).toThrow('requires a UID');
+        // @ts-expect-error These references do not support UID mutations.
+        expect(() => reference.enable()).toThrow('requires a UID');
+        // @ts-expect-error These references do not support UID mutations.
+        expect(() => reference.resetPassword()).toThrow('requires a UID');
+    }
+    expect(read).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+});
+
 it('defaults to a single read-only lookup and snapshots named options', async () => {
     const auth = new FirebaseAdminAuth({
         project_id: 'project'

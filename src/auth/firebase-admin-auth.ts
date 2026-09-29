@@ -13,6 +13,7 @@ import {
     createAuthEmulatorFetch,
     manageAuthConfig,
     generateEmailActionLink,
+    sendPasswordResetEmailAdmin,
     deleteAccountsAdmin,
     importAccountsAdmin,
     createAccountAdmin,
@@ -1402,6 +1403,47 @@ export class FirebaseAdminAuth {
                     { cause: ensureError(cause) }
                 )
             };
+        }
+    }
+
+    /** Send a password-reset email for an Identity reference. @internal */
+    async _sendPasswordResetEmail(
+        email: string,
+        settings?: ActionCodeSettings
+    ) {
+        const { error, data } = buildEmailActionRequest(
+            'PASSWORD_RESET',
+            email,
+            settings
+        );
+        if (error) {
+            return { error, data: null };
+        }
+
+        try {
+            const { error: tokenError, data: token } =
+                await this.getCachedToken();
+            if (tokenError) {
+                return { error: ensureError(tokenError), data: null };
+            }
+            if (!token?.access_token) {
+                return {
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    ),
+                    data: null
+                };
+            }
+
+            return await sendPasswordResetEmailAdmin(
+                this.serviceAccountKey.project_id,
+                data,
+                token.access_token,
+                this.fetch,
+                this.tenantId
+            );
+        } catch (cause) {
+            return { error: ensureError(cause), data: null };
         }
     }
 

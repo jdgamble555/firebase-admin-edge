@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 3.0.1
+
+### Patch Changes
+
+- 8ad3263: reset password, enable, disable account for identity
+
 ## 3.0.0
 
 ### Major Changes

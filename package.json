@@ -1,6 +1,6 @@
 {
     "name": "firebase-admin-edge",
-    "version": "3.0.1",
+    "version": "3.0.2",
     "description": "Firebase Authentication, Firestore, and Admin features for edge runtimes and serverless apps, built with TypeScript and Firebase REST APIs.",
     "keywords": [
         "firebase",

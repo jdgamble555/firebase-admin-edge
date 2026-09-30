@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 3.0.2
+
+### Patch Changes
+
+- 84a0ab3: add providers and tenants to identity
+
 ## 3.0.1
 
 ### Patch Changes

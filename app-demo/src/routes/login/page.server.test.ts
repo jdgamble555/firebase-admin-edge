@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { actions } from './+page.server';
 
-vi.mock('$lib/svelte-helpers', () => ({ getPathname: () => '/dashboard' }));
-
 it.each([false, true])('sends magic links with email in the flow (failure=%s)', async (failure) => {
 	const sendSignInLinkToEmail = vi
 		.fn()
@@ -11,7 +9,7 @@ it.each([false, true])('sends magic links with email in the flow (failure=%s)', 
 		);
 	const event = {
 		url: new URL('https://app/login'),
-		locals: { authServer: { sendSignInLinkToEmail } },
+		locals: { fbServer: { sendSignInLinkToEmail } },
 		request: new Request('https://app/login?/email', {
 			method: 'POST',
 			body: new URLSearchParams({ email: ' user@example.com ' })
@@ -25,22 +23,34 @@ it.each([false, true])('sends magic links with email in the flow (failure=%s)', 
 });
 
 describe.each(['google', 'github'] as const)('%s login', (provider) => {
-	it('redirects to Firebase-managed authorization without local provider credentials', async () => {
-		const getProviderLoginURL = vi.fn().mockResolvedValue('https://accounts.google.com/authorize');
-		const event = { locals: { authServer: { getProviderLoginURL } } };
-		const result = actions[provider](
-			event as unknown as Parameters<(typeof actions)[typeof provider]>[0]
-		);
-		await expect(result).rejects.toMatchObject({
-			status: 302,
-			location: 'https://accounts.google.com/authorize'
-		});
-		expect(getProviderLoginURL).toHaveBeenCalledWith(provider, '/dashboard');
-	});
+	it.each([undefined, '', '/dashboard', '/dashboard?tab=profile&label=hello world#details'])(
+		'preserves the action URL destination with next=%s',
+		async (next) => {
+			const getProviderLoginURL = vi
+				.fn()
+				.mockResolvedValue('https://accounts.google.com/authorize');
+			const url = new URL(`https://app/login?/${provider}`);
+			if (next !== undefined) {
+				url.searchParams.set('next', next);
+			}
+			const event = { url, locals: { fbServer: { getProviderLoginURL } } };
+			const result = actions[provider](
+				event as unknown as Parameters<(typeof actions)[typeof provider]>[0]
+			);
+			await expect(result).rejects.toMatchObject({
+				status: 302,
+				location: 'https://accounts.google.com/authorize'
+			});
+			expect(getProviderLoginURL).toHaveBeenCalledWith(provider, next || '/');
+		}
+	);
 
 	it('propagates authorization failures without redirecting', async () => {
 		const getProviderLoginURL = vi.fn().mockRejectedValue(new Error('Google provider disabled'));
-		const event = { locals: { authServer: { getProviderLoginURL } } };
+		const event = {
+			url: new URL(`https://app/login?/${provider}`),
+			locals: { fbServer: { getProviderLoginURL } }
+		};
 		const result = actions[provider](
 			event as unknown as Parameters<(typeof actions)[typeof provider]>[0]
 		);
@@ -53,7 +63,7 @@ it.each(['', 'invalid', ' '])(
 	async (email) => {
 		const sendSignInLinkToEmail = vi.fn();
 		const event = {
-			locals: { authServer: { sendSignInLinkToEmail } },
+			locals: { fbServer: { sendSignInLinkToEmail } },
 			request: new Request('https://app/login', {
 				method: 'POST',
 				body: new URLSearchParams({ email })

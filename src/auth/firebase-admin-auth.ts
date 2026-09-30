@@ -8,6 +8,7 @@ import {
     type IdentityWriteResult
 } from './identity-write.js';
 import {
+    getEnabledProviders,
     countAccounts,
     queryAccounts,
     createAuthEmulatorFetch,
@@ -147,6 +148,32 @@ export interface FirebaseAdminAuthOptions extends AuthEmulatorOptions {
  * Provides server-side authentication operations using service account credentials.
  */
 export class FirebaseAdminAuth {
+    /** Read enabled standard provider configurations. @internal */
+    async _getProviders() {
+        try {
+            const { error, data: token } = await this.getCachedToken();
+            if (error) {
+                return { data: null, error };
+            }
+            if (!token?.access_token) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED
+                    )
+                };
+            }
+            return await getEnabledProviders(
+                token.access_token,
+                this.serviceAccountKey.project_id,
+                this.tenantId,
+                this.fetch
+            );
+        } catch (cause) {
+            return { data: null, error: ensureError(cause) };
+        }
+    }
+
     /** Count accounts with the same native filter used by Identity queries. @internal */
     async _countUsers(
         filter?: IdentityQueryOptions['filter']

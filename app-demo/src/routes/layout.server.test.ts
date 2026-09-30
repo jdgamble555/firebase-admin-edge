@@ -7,7 +7,7 @@ describe('root layout session', () => {
 			cause: new Error('Invalid signature')
 		});
 		const getUser = vi.fn().mockResolvedValue({ data: null, error: firebaseError });
-		const event = { locals: { authServer: { getUser } } };
+		const event = { locals: { fbServer: { getUser } } };
 
 		const result = load(event as unknown as Parameters<typeof load>[0]);
 		const failure = await result.catch((error) => error);
@@ -19,7 +19,7 @@ describe('root layout session', () => {
 
 	it.each([null, { uid: 'user-123' }])('returns the current user: %j', async (user) => {
 		const getUser = vi.fn().mockResolvedValue({ data: user, error: null });
-		const event = { locals: { authServer: { getUser } } };
+		const event = { locals: { fbServer: { getUser } } };
 
 		const result = await load(event as unknown as Parameters<typeof load>[0]);
 

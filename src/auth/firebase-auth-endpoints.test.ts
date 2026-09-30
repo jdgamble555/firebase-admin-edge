@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+    getEnabledProviders,
     countAccounts,
     queryAccounts,
     createAuthEmulatorFetch,
@@ -34,6 +35,89 @@ import { FirebaseEdgeError, FirebaseEndpointErrorInfo } from './errors.js';
 import type { AuthConfigOperation } from './auth-config-types.js';
 
 vi.mock('../rest-fetch.js');
+
+describe('getEnabledProviders', () => {
+    beforeEach(() => vi.resetAllMocks());
+
+    it.each([undefined, 'tenant/id'])(
+        'paginates enabled providers in scope %s',
+        async (tenantId) => {
+            const fetchFn = vi.fn();
+            const request = vi.mocked(restFetch.restFetch);
+            request
+                .mockResolvedValueOnce({
+                    error: null,
+                    data: {
+                        defaultSupportedIdpConfigs: [
+                            {
+                                name: 'projects/p/defaultSupportedIdpConfigs/google.com',
+                                enabled: true
+                            }
+                        ],
+                        nextPageToken: 'next'
+                    }
+                })
+                .mockResolvedValueOnce({ error: null, data: {} });
+            const result = await getEnabledProviders(
+                'token',
+                'project/id',
+                tenantId,
+                fetchFn
+            );
+            expect(result).toEqual({
+                error: null,
+                data: [{ providerId: 'google.com', enabled: true }]
+            });
+            const url = tenantId
+                ? 'https://identitytoolkit.googleapis.com/v2/projects/project%2Fid/tenants/tenant%2Fid/defaultSupportedIdpConfigs'
+                : 'https://identitytoolkit.googleapis.com/admin/v2/projects/project%2Fid/defaultSupportedIdpConfigs';
+            expect(request).toHaveBeenNthCalledWith(1, url, {
+                method: 'GET',
+                bearerToken: 'token',
+                params: { pageSize: '100' },
+                global: { fetch: fetchFn }
+            });
+            expect(request).toHaveBeenNthCalledWith(2, url, {
+                method: 'GET',
+                bearerToken: 'token',
+                params: { pageSize: '100', pageToken: 'next' },
+                global: { fetch: fetchFn }
+            });
+        }
+    );
+
+    it('returns errors without partial results and prevents pagination loops', async () => {
+        const request = vi.mocked(restFetch.restFetch);
+        request.mockResolvedValue({
+            error: null,
+            data: { nextPageToken: 'same' }
+        });
+        const loop = await getEnabledProviders('token', 'p');
+        expect(loop).toMatchObject({
+            data: null,
+            error: { code: 'auth/internal-error' }
+        });
+        expect(request).toHaveBeenCalledTimes(2);
+        request.mockResolvedValueOnce({
+            data: null,
+            error: { error: { code: 403, message: 'PERMISSION_DENIED' } }
+        });
+        const denied = await getEnabledProviders('token', 'p');
+        expect(denied).toEqual({ data: null, error: expect.any(Error) });
+        request.mockRejectedValueOnce(new Error('network'));
+        const network = await getEnabledProviders('token', 'p');
+        expect(network).toMatchObject({
+            data: null,
+            error: { message: 'network' }
+        });
+        request.mockResolvedValueOnce({ error: null, data: null });
+        const malformed = await getEnabledProviders('token', 'p');
+        expect(malformed).toMatchObject({
+            data: null,
+            error: { code: 'auth/internal-error' }
+        });
+    });
+});
 
 describe('countAccounts', () => {
     beforeEach(() => vi.resetAllMocks());

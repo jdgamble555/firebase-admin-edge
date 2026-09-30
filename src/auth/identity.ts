@@ -11,6 +11,17 @@ export type {
     IdentityWriteResult
 } from './identity-write.js';
 import type { ProviderIdentifier } from './user-request.js';
+import { invalidConfig } from './auth-config.js';
+import type {
+    AuthConfigResult,
+    ListTenantsResult,
+    Tenant
+} from './auth-config-types.js';
+import { IdentityProviders } from './identity-providers.js';
+export {
+    IdentityProviders,
+    type IdentityProvider
+} from './identity-providers.js';
 import {
     identityLookupIdentifiers,
     identityOrIdentifiers
@@ -60,9 +71,20 @@ export type IdentityOptions = FirebaseAdminAuthOptions;
 /** Fluent Firebase Authentication queries with automatic endpoint selection. */
 export class Identity<Claims extends object = Record<string, unknown>> {
     private readonly auth: FirebaseAdminAuth;
+    readonly providers: IdentityProviders;
+
+    /** Read supported configuration settings for the parent project. */
+    readonly config = {
+        get: () => this.auth.projectConfigManager().getProjectConfig()
+    };
+
+    /** Read all tenants, or build a query for one page. */
+    readonly tenants: IdentityTenants;
 
     constructor(serviceAccount: ServiceAccount, options: IdentityOptions = {}) {
         this.auth = new FirebaseAdminAuth(serviceAccount, options);
+        this.providers = new IdentityProviders(this.auth);
+        this.tenants = new IdentityTenants(this.auth);
     }
 
     users<Schema extends object = Claims>(): IdentityQueryBuilder<
@@ -74,6 +96,62 @@ export class Identity<Claims extends object = Record<string, unknown>> {
         return new IdentityQuery<Schema>(
             this.auth
         ) as unknown as IdentityQueryBuilder<'base', false, true, Schema>;
+    }
+}
+
+/** Immutable, token-paginated query for the parent project's tenants. */
+export class IdentityTenants {
+    constructor(
+        private readonly auth: FirebaseAdminAuth,
+        private readonly maxResults?: number,
+        private readonly token?: string
+    ) {}
+
+    limit(value: number): IdentityTenants {
+        if (!Number.isInteger(value) || value < 1 || value > 1000) {
+            throw invalidConfig('Tenant limit must be between 1 and 1000.');
+        }
+        return new IdentityTenants(this.auth, value, this.token);
+    }
+
+    pageToken(value: string): IdentityTenants {
+        if (typeof value !== 'string' || !value.length) {
+            throw invalidConfig('pageToken must be a non-empty string.');
+        }
+        return new IdentityTenants(this.auth, this.maxResults, value);
+    }
+
+    async get(): Promise<AuthConfigResult<ListTenantsResult>> {
+        const manager = this.auth.tenantManager();
+        if (this.maxResults !== undefined || this.token !== undefined) {
+            return manager.listTenants(this.maxResults ?? 1000, this.token);
+        }
+
+        const tenants: Tenant[] = [];
+        const seenTokens = new Set<string>();
+        let pageToken: string | undefined;
+        do {
+            const { error, data } = await manager.listTenants(1000, pageToken);
+            if (error) {
+                return { error, data: null };
+            }
+            tenants.push(...data.tenants);
+            pageToken = data.pageToken;
+            if (pageToken && seenTokens.has(pageToken)) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError({
+                        code: 'auth/internal-error',
+                        message: 'Tenant pagination repeated a page token.'
+                    })
+                };
+            }
+            if (pageToken) {
+                seenTokens.add(pageToken);
+            }
+        } while (pageToken);
+
+        return { error: null, data: { tenants } };
     }
 }
 

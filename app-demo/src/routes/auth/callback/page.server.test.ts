@@ -3,33 +3,31 @@ import { load, actions } from './+page.server';
 
 it('renders core-provided action data without consuming the code', async () => {
 	const data = { hasLink: true, actionMode: 'resetPassword' };
-	const authServer = {
+	const fbServer = {
 		getCallbackAction: vi.fn().mockReturnValue({ data, error: null }),
 		handleCallback: vi.fn()
 	};
 	const url = new URL('https://app/auth/callback?link=wrapped');
-	const result = await load({ url, locals: { authServer } } as unknown as Parameters<
-		typeof load
-	>[0]);
+	const result = await load({ url, locals: { fbServer } } as unknown as Parameters<typeof load>[0]);
 	expect(result).toBe(data);
-	expect(authServer.getCallbackAction).toHaveBeenCalledWith(url);
-	expect(authServer.handleCallback).not.toHaveBeenCalled();
+	expect(fbServer.getCallbackAction).toHaveBeenCalledWith(url);
+	expect(fbServer.handleCallback).not.toHaveBeenCalled();
 });
 it('redirects provider sign-ins through the shared handler', async () => {
-	const authServer = {
+	const fbServer = {
 		getCallbackAction: vi.fn().mockReturnValue({ data: null, error: null }),
 		handleCallback: vi
 			.fn()
 			.mockResolvedValue({ data: { type: 'redirect', url: '/dashboard' }, error: null })
 	};
 	const url = new URL('https://app/auth/callback?code=oauth');
-	const result = load({ url, locals: { authServer } } as unknown as Parameters<typeof load>[0]);
+	const result = load({ url, locals: { fbServer } } as unknown as Parameters<typeof load>[0]);
 	await expect(result).rejects.toMatchObject({ status: 302, location: '/dashboard' });
-	expect(authServer.handleCallback).toHaveBeenCalledWith(url);
+	expect(fbServer.handleCallback).toHaveBeenCalledWith(url);
 });
 it.each(['inspection', 'completion'])('shows GET errors from core %s', async (stage) => {
 	const error = { message: 'Invalid callback' };
-	const authServer = {
+	const fbServer = {
 		getCallbackAction: vi
 			.fn()
 			.mockReturnValue({ data: null, error: stage === 'inspection' ? error : null }),
@@ -37,13 +35,13 @@ it.each(['inspection', 'completion'])('shows GET errors from core %s', async (st
 	};
 	const result = load({
 		url: new URL('https://app/callback'),
-		locals: { authServer }
+		locals: { fbServer }
 	} as unknown as Parameters<typeof load>[0]);
 	await expect(result).rejects.toMatchObject({
 		status: 400,
 		body: { message: 'Invalid callback' }
 	});
-	if (stage === 'inspection') expect(authServer.handleCallback).not.toHaveBeenCalled();
+	if (stage === 'inspection') expect(fbServer.handleCallback).not.toHaveBeenCalled();
 });
 it.each(['redirect', 'complete', 'auth/missing-email', 'auth/expired-action-code'])(
 	'presents the core POST result: %s',
@@ -56,7 +54,7 @@ it.each(['redirect', 'complete', 'auth/missing-email', 'auth/expired-action-code
 		const url = new URL('https://app/auth/callback?link=wrapped');
 		const event = {
 			url,
-			locals: { authServer: { handleCallback } },
+			locals: { fbServer: { handleCallback } },
 			request: new Request(url, {
 				method: 'POST',
 				body: new URLSearchParams({
@@ -90,7 +88,7 @@ it('rejects invalid callback fields before consuming the link', async () => {
 	const url = new URL('https://app/auth/callback?mode=signIn&oobCode=code');
 	const event = {
 		url,
-		locals: { authServer: { handleCallback } },
+		locals: { fbServer: { handleCallback } },
 		request: new Request(url, { method: 'POST', body: new URLSearchParams({ email: 'invalid' }) })
 	};
 	const { status, data } = (await actions.default(

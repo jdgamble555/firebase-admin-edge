@@ -1,6 +1,6 @@
 # Identity, IdentityQuery, and IdentityCountQuery
 
-Each `get()` makes at most **one account-data request**. Identity never follows
+Each user query `get()` makes at most **one account-data request**. User queries never follow
 tokens, scans extra pages, retries, or falls back to another endpoint.
 Unsupported combinations fail before requesting accounts. OAuth token
 acquisition can require a separate request when credentials aren't cached.
@@ -33,6 +33,96 @@ The service account needs `firebaseauth.users.get`. Emulator endpoint failures
 are returned without fallback.
 
 ## Methods
+
+### Enabled sign-in providers
+
+`identity.providers.get()` returns all enabled standard providers (such as
+`google.com`, `apple.com`, and `github.com`) for the configured project or tenant.
+It follows configuration pagination automatically and returns only
+`{ providerId, enabled: true }` records, without client IDs or secrets.
+
+```ts
+const { error, data } = await fbServer.identity.providers.get();
+if (error) {
+    throw error;
+}
+console.log(data.map(({ providerId }) => providerId));
+```
+
+The service account needs `firebaseauth.configs.get`. Errors return
+`{ error, data: null }`, including failures on later pages; an empty enabled list
+returns `{ error: null, data: [] }`. Emulator failures are returned without fallback.
+This method reads `defaultSupportedIdpConfigs`; it excludes local email/password,
+phone, anonymous sign-in, and custom OIDC/SAML providers. Use
+`FirebaseAdminAuth.listProviderConfigs()` for custom OIDC/SAML configurations.
+
+### Project configuration
+
+`identity.config.get()` reads the parent project's supported authentication
+settings through the existing project configuration manager. It returns
+`{ error, data }`, where `data` is a `ProjectConfig` (including password policy,
+MFA, and other supported settings). It still targets the parent project when
+`Identity` is configured with a tenant ID.
+
+```ts
+const { error, data } = await fbServer.identity.config.get();
+if (error) {
+    throw error;
+}
+console.log(data.passwordPolicyConfig);
+```
+
+See [ProjectConfigManager](PROJECT_CONFIG_MANAGER.md) for the supported fields.
+
+### Tenants
+
+`identity.tenants.get()` fetches **all tenants**, following page tokens
+automatically in batches of up to 1000. The result contains `data.tenants` with no
+continuation token. If any page fails, it returns `{ error, data: null }` without
+partial results.
+
+```ts
+const { error, data } = await fbServer.identity.tenants.get();
+if (error) {
+    throw error;
+}
+console.log(data.tenants);
+```
+
+`identity.tenants.limit(n).pageToken(token).get()` lists one page of the parent
+project's tenants. Both builder methods are optional and return new queries.
+The limit defaults to 1000 and must be an integer between 1 and 1000; a page token
+must be a non-empty string. Invalid builder arguments throw `auth/invalid-argument`
+before any request. Repeated builder calls replace the corresponding setting.
+It returns `{ error, data }`, with `data.tenants` and an optional `data.pageToken`.
+An empty page contains `tenants: []`. Pagination is explicit:
+
+```ts
+const tenants = fbServer.identity.tenants.limit(100);
+let query = tenants;
+while (true) {
+    const { error, data } = await query.get();
+    if (error) {
+        throw error;
+    }
+    console.log(data.tenants);
+    if (!data.pageToken) {
+        break;
+    }
+    query = tenants.pageToken(data.pageToken);
+}
+```
+
+Setting either `.limit(n)` or `.pageToken(token)` makes `get()` return just one
+page, including its continuation token. The tenant endpoint has no native offset
+parameter, so the builder does not expose `.offset()`.
+
+Both reads reuse the configured credentials, cache, fetch implementation, and
+emulator routing. Errors return `{ error, data: null }`. Tenant listing requires
+the appropriate project permissions and Identity Platform multi-tenancy; see
+[TenantManager](TENANT_MANAGER.md).
+
+### User queries
 
 `users()` creates a fresh `IdentityQuery`. Builder methods return new queries.
 Invalid arguments throw `auth/invalid-argument`. Unsupported combinations are

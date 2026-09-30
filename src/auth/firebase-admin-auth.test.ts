@@ -7,6 +7,7 @@ import type {
     UserInfo
 } from './firebase-types.js';
 import {
+    getEnabledProviders,
     countAccounts,
     queryAccounts,
     revokeRefreshTokens,
@@ -46,6 +47,7 @@ vi.mock('./firebase-auth-endpoints.js', async (importOriginal) => {
         createAuthEmulatorFetch: actual.createAuthEmulatorFetch,
         revokeRefreshTokens: vi.fn(),
         manageAuthConfig: vi.fn(),
+        getEnabledProviders: vi.fn(),
         generateEmailActionLink: vi.fn(),
         sendPasswordResetEmailAdmin: vi.fn(),
         deleteAccountsAdmin: vi.fn(),
@@ -72,6 +74,74 @@ vi.mock('./google-oauth.js', () => ({
 }));
 
 const mockedGetToken = vi.mocked(getToken);
+
+describe('Identity provider discovery', () => {
+    beforeEach(() => vi.resetAllMocks());
+
+    it('uses cached credentials and forwards tenant and custom transport', async () => {
+        const fetchFn = vi.fn();
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            tenantId: 'tenant',
+            fetch: fetchFn,
+            emulatorHost: null,
+            cache: {
+                getCache: vi.fn().mockResolvedValue(mockGoogleTokenResponse),
+                setCache: vi.fn()
+            }
+        });
+        vi.mocked(getEnabledProviders).mockResolvedValue({
+            data: [],
+            error: null
+        });
+        const result = await auth._getProviders();
+        expect(result).toEqual({ data: [], error: null });
+        expect(getEnabledProviders).toHaveBeenCalledExactlyOnceWith(
+            mockGoogleTokenResponse.access_token,
+            serviceAccountKey.project_id,
+            'tenant',
+            fetchFn
+        );
+        expect(getToken).not.toHaveBeenCalled();
+        const error = new Error('endpoint');
+        vi.mocked(getEnabledProviders).mockResolvedValueOnce({
+            data: null,
+            error
+        });
+        const failed = await auth._getProviders();
+        expect(failed).toEqual({ data: null, error });
+    });
+
+    it('returns token failures, missing tokens and thrown failures without making requests', async () => {
+        const auth = new FirebaseAdminAuth(serviceAccountKey, {
+            emulatorHost: null
+        });
+        const error = new FirebaseEdgeError({
+            code: 'auth/internal-error',
+            message: 'token failed'
+        });
+        mockedGetToken.mockResolvedValueOnce({ data: null, error });
+        const failed = await auth._getProviders();
+        expect(failed).toEqual({ data: null, error });
+        mockedGetToken.mockResolvedValueOnce({
+            error: null,
+            data: { ...mockGoogleTokenResponse, access_token: '' }
+        });
+        const missing = await auth._getProviders();
+        expect(missing).toMatchObject({
+            data: null,
+            error: {
+                code: FirebaseAdminAuthErrorInfo.ADMIN_NO_TOKEN_RETURNED.code
+            }
+        });
+        mockedGetToken.mockRejectedValueOnce(new Error('network'));
+        const thrown = await auth._getProviders();
+        expect(thrown).toMatchObject({
+            data: null,
+            error: { message: 'network' }
+        });
+        expect(getEnabledProviders).not.toHaveBeenCalled();
+    });
+});
 
 describe('Identity password reset delivery', () => {
     beforeEach(() => vi.clearAllMocks());

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { inspect } from 'node:util';
 import {
     mapFirebaseError,
     normalizeAdminEndpointError
@@ -225,15 +226,84 @@ describe('mapFirebaseError', () => {
             );
         });
 
-        it('maps INVALID_IDP_RESPONSE to invalid provider id', () => {
+        it('maps generic INVALID_IDP_RESPONSE to provider authentication failure', () => {
             const error = mapFirebaseError({
                 code: 400,
                 message: 'INVALID_IDP_RESPONSE'
             });
 
             expect(error).toBeInstanceOf(FirebaseEdgeError);
+            expect(error).toMatchObject(
+                FirebaseEndpointErrorInfo.ENDPOINT_PROVIDER_AUTHENTICATION_FAILED
+            );
+            expect(error.context).toEqual({
+                firebaseCode: 400,
+                firebaseErrorCode: 'INVALID_IDP_RESPONSE'
+            });
+        });
+
+        it('retains safe invalid-client-secret diagnostics without credentials', () => {
+            const message =
+                'INVALID_IDP_RESPONSE : Error getting access token from google.com ' +
+                'error=invalid_client&error_description=The provided client secret is invalid. ' +
+                'code=private-oauth-code&access_token=private-access-token&' +
+                'id_token=private-id-token&refresh_token=private-refresh-token&' +
+                'client_secret=private-client-secret';
+            const error = mapFirebaseError({
+                code: 400,
+                message,
+                errors: [{ reason: 'invalid', message, domain: 'global' }]
+            });
+
+            expect(error).toMatchObject({
+                code: 'auth/endpoint-provider-authentication-failed',
+                message:
+                    'Authentication with the provider failed during credential exchange.'
+            });
+            expect(error.context).toEqual({
+                firebaseCode: 400,
+                firebaseErrorCode: 'INVALID_IDP_RESPONSE',
+                oauthError: 'invalid_client',
+                diagnostic: 'invalid-client-secret'
+            });
+            expect(error.cause).toBeUndefined();
+            expect(JSON.stringify(error)).not.toContain('private-');
+            expect(inspect(error)).not.toContain('private-');
+            expect(String(error)).not.toContain('private-');
+        });
+
+        it.each(['INVALID_GRANT', 'INVALID_PROVIDER_ID', 'INVALID_OOB_CODE'])(
+            'keeps the provider failure classification when diagnostics contain %s',
+            (nestedCode) => {
+                const error = mapFirebaseError({
+                    code: 400,
+                    message: `invalid_idp_response : ${nestedCode} unstructured-sensitive-value`
+                });
+
+                expect(error.code).toBe(
+                    'auth/endpoint-provider-authentication-failed'
+                );
+                expect(error.context).toEqual({
+                    firebaseCode: 400,
+                    firebaseErrorCode: 'INVALID_IDP_RESPONSE'
+                });
+                expect(inspect(error)).not.toContain(
+                    'unstructured-sensitive-value'
+                );
+            }
+        );
+
+        it.each([
+            'INVALID_PROVIDER_ID',
+            'INVALID_PROVIDER_ID : unsupported provider'
+        ])('maps genuine invalid provider ID error: %s', (message) => {
+            const error = mapFirebaseError({ code: 400, message });
+
             expect(error.code).toBe(
                 FirebaseEndpointErrorInfo.ENDPOINT_INVALID_PROVIDER_ID.code
+            );
+            expect(error.message).toBe(
+                'The authentication provider ID is invalid.'
             );
         });
     });

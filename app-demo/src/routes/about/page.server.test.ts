@@ -9,7 +9,7 @@ describe('about page', () => {
 		const get = vi.fn().mockResolvedValue({ error: null, data: { data } });
 		const withConverter = vi.fn().mockReturnValue({ get });
 		const doc = vi.fn().mockReturnValue({ withConverter });
-		const event = { locals: { authServer: { firestore: { doc } } } };
+		const event = { locals: { fbServer: { firestore: { doc } } } };
 
 		const result = await load(event as unknown as Parameters<typeof load>[0]);
 
@@ -25,7 +25,7 @@ describe('about page', () => {
 			.mockResolvedValue({ error: null, data: { data: vi.fn().mockReturnValue(undefined) } });
 		const withConverter = vi.fn().mockReturnValue({ get });
 		const doc = vi.fn().mockReturnValue({ withConverter });
-		const event = { locals: { authServer: { firestore: { doc } } } };
+		const event = { locals: { fbServer: { firestore: { doc } } } };
 
 		const result = load(event as unknown as Parameters<typeof load>[0]);
 
@@ -43,7 +43,7 @@ describe('about page', () => {
 				: vi.fn().mockResolvedValue({ error: null, data: { data } });
 		const withConverter = vi.fn().mockReturnValue({ get });
 		const doc = vi.fn().mockReturnValue({ withConverter });
-		const event = { locals: { authServer: { firestore: { doc } } } };
+		const event = { locals: { fbServer: { firestore: { doc } } } };
 
 		const result = load(event as unknown as Parameters<typeof load>[0]);
 

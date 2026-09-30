@@ -4,7 +4,7 @@ import { fail } from '@sveltejs/kit';
 import type { Actions } from './$types';
 
 export const actions = {
-	default: async ({ request, locals: { authServer } }) => {
+	default: async ({ request, locals: { fbServer } }) => {
 		const form = await request.formData();
 		const { success, output: email, issues } = safeParse(emailSchema, form.get('email'));
 
@@ -12,7 +12,7 @@ export const actions = {
 			return fail(400, { message: issues[0].message, sent: false });
 		}
 
-		const { error } = await authServer.sendPasswordResetEmail(email);
+		const { error } = await fbServer.sendPasswordResetEmail(email);
 
 		// Do not reveal whether an account exists for this email.
 

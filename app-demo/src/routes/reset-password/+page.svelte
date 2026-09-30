@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import type { PageProps } from './$types';
 	let { form }: PageProps = $props();
 </script>
@@ -41,7 +42,7 @@
 		>
 	</form>
 	<a
-		href="/login"
+		href={resolve('/login')}
 		class="text-center text-sm font-medium text-gray-600 underline underline-offset-4 hover:text-gray-900"
 		>Back to sign in</a
 	>

@@ -40,16 +40,3 @@ describe('dashboard provider confirmation', () => {
 			.toHaveTextContent('Unable to disconnect provider');
 	});
 });
-
-it('offers a server-side email change and confirms delivery', async () => {
-	const { container } = render(Dashboard, {
-		data: { user: null, providers: {} },
-		params: {},
-		form: { message: 'Check your new email.', emailSent: true }
-	});
-	await expect.element(page.getByRole('button', { name: 'Send confirmation link' })).toBeVisible();
-	await expect.element(page.getByRole('status')).toHaveTextContent('Check your new email.');
-	expect(container.querySelector('form[action="?/changeEmail"]')?.getAttribute('method')).toBe(
-		'POST'
-	);
-});

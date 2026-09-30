@@ -9,7 +9,7 @@ const firebaseConfig = JSON.parse(PUBLIC_FIREBASE_CONFIG);
 const cache = new TokenCache();
 
 export const handle: Handle = async ({ event, resolve }) => {
-	event.locals.authServer = createFirebaseEdgeServer({
+	event.locals.fbServer = createFirebaseEdgeServer({
 		serviceAccount,
 		firebaseConfig,
 		cookies: {

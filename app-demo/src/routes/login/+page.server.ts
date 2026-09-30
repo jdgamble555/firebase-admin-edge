@@ -2,7 +2,6 @@ import { safeParse } from 'valibot';
 import { emailSchema } from '$lib/form-schemas';
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { getPathname } from '$lib/svelte-helpers';
 
 export const load = (async ({ parent, url }) => {
 	const next = url.searchParams.get('next') || '/';
@@ -15,7 +14,7 @@ export const load = (async ({ parent, url }) => {
 }) satisfies PageServerLoad;
 
 export const actions = {
-	email: async ({ locals: { authServer }, request }) => {
+	email: async ({ locals: { fbServer }, request }) => {
 		const form = await request.formData();
 		const { success, output: email, issues } = safeParse(emailSchema, form.get('email'));
 
@@ -24,7 +23,7 @@ export const actions = {
 		}
 
 		// Carry email in the link so it also works on another device.
-		const { error } = await authServer.sendSignInLinkToEmail(email, '/dashboard', {
+		const { error } = await fbServer.sendSignInLinkToEmail(email, '/dashboard', {
 			includeEmailInLink: true
 		});
 
@@ -35,24 +34,24 @@ export const actions = {
 		return { message: 'Check your email for your sign-in link.', sent: true };
 	},
 
-	google: async ({ locals: { authServer } }) => {
-		const next = getPathname();
+	google: async ({ locals: { fbServer }, url }) => {
+		const next = url.searchParams.get('next') || '/';
 
-		const loginUrl = await authServer.getProviderLoginURL('google', next);
-
-		redirect(302, loginUrl);
-	},
-
-	github: async ({ locals: { authServer } }) => {
-		const next = getPathname();
-
-		const loginUrl = await authServer.getProviderLoginURL('github', next);
+		const loginUrl = await fbServer.getProviderLoginURL('google', next);
 
 		redirect(302, loginUrl);
 	},
 
-	logout: async ({ locals: { authServer } }) => {
-		authServer.signOut();
+	github: async ({ locals: { fbServer }, url }) => {
+		const next = url.searchParams.get('next') || '/';
+
+		const loginUrl = await fbServer.getProviderLoginURL('github', next);
+
+		redirect(302, loginUrl);
+	},
+
+	logout: async ({ locals: { fbServer } }) => {
+		fbServer.signOut();
 
 		redirect(302, '/');
 	}

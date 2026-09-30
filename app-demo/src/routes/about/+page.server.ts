@@ -2,8 +2,8 @@ import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { aboutConverter } from './about-converter';
 
-export const load = (async ({ locals: { authServer } }) => {
-	const { error: readError, data: document } = await authServer.firestore
+export const load = (async ({ locals: { fbServer } }) => {
+	const { error: readError, data: document } = await fbServer.firestore
 		.doc('about/ZlNJrKd6LcATycPRmBPA')
 		.withConverter(aboutConverter)
 		.get();

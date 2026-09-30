@@ -31,6 +31,24 @@ console.log(user);
 Some operations wrap the underlying error in `cause`; others return it directly.
 Check the returned `code` and inspect `cause` when you need more detail.
 
+## Provider credential exchange failures
+
+Firebase's `INVALID_IDP_RESPONSE` maps to
+`auth/endpoint-provider-authentication-failed`, with the message
+“Authentication with the provider failed during credential exchange.”
+`INVALID_PROVIDER_ID` maps to `auth/endpoint-invalid-provider-id`.
+
+The provider authentication error's `context` retains the HTTP status as
+`firebaseCode` and the fixed `firebaseErrorCode: 'INVALID_IDP_RESPONSE'` label.
+When recognized, it also includes `oauthError: 'invalid_client'` and
+`diagnostic: 'invalid-client-secret'`. Raw provider responses and nested error
+details are omitted, so OAuth codes, tokens, and secrets are not copied into
+the mapped error, including its cause and context.
+
+An invalid client secret still requires correcting the OAuth client secret in
+Firebase configuration. This mapping improves the diagnosis; it does not repair
+the configuration.
+
 ## Constructor
 
 The class is defined in [errors.ts](../src/auth/errors.ts). It is not exported from

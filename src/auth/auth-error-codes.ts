@@ -868,6 +868,11 @@ export const FirebaseEndpointErrorInfo = {
     },
 
     // Provider-Specific Errors
+    ENDPOINT_PROVIDER_AUTHENTICATION_FAILED: {
+        message:
+            'Authentication with the provider failed during credential exchange.',
+        code: 'auth/endpoint-provider-authentication-failed'
+    },
     ENDPOINT_INVALID_PROVIDER_ID: {
         message: 'The authentication provider ID is invalid.',
         code: 'auth/endpoint-invalid-provider-id'

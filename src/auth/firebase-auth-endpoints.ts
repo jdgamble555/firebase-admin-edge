@@ -15,6 +15,10 @@ import type {
     UserInfo
 } from './firebase-types.js';
 import { restFetch } from '../rest-fetch.js';
+import {
+    parseIdentityProvidersPage,
+    type IdentityProvider
+} from './identity-providers.js';
 import { resolveAuthEmulatorHost } from './auth-emulator.js';
 
 import type { JsonWebKey } from 'crypto';
@@ -41,6 +45,64 @@ import {
     configUpdateMask,
     parseAuthConfigResponse
 } from './auth-config.js';
+
+/** Read enabled standard providers across all configuration pages. @internal */
+export async function getEnabledProviders(
+    token: string,
+    projectId: string,
+    tenantId?: string,
+    fetchFn?: typeof globalThis.fetch
+): Promise<
+    { data: IdentityProvider[]; error: null } | { data: null; error: Error }
+> {
+    const parent = createAdminIdentityURL(
+        projectId,
+        '',
+        false,
+        tenantId,
+        tenantId ? 'v2' : 'admin/v2'
+    );
+    const providers: IdentityProvider[] = [];
+    const seenTokens = new Set<string>();
+    let pageToken: string | undefined;
+    try {
+        do {
+            const { error, data } = await restFetch<unknown, FirebaseRestError>(
+                `${parent}/defaultSupportedIdpConfigs`,
+                {
+                    method: 'GET',
+                    bearerToken: token,
+                    params: {
+                        pageSize: '100',
+                        ...(pageToken && { pageToken })
+                    },
+                    global: { fetch: fetchFn }
+                }
+            );
+            if (error) {
+                return {
+                    data: null,
+                    error: normalizeAdminEndpointError(error)
+                };
+            }
+            const page = parseIdentityProvidersPage(data);
+            providers.push(...page.providers);
+            pageToken = page.nextPageToken;
+            if (pageToken && seenTokens.has(pageToken)) {
+                throw new FirebaseEdgeError({
+                    code: 'auth/internal-error',
+                    message: 'Provider pagination repeated a page token.'
+                });
+            }
+            if (pageToken) {
+                seenTokens.add(pageToken);
+            }
+        } while (pageToken);
+        return { data: providers, error: null };
+    } catch (cause) {
+        return { data: null, error: ensureError(cause) };
+    }
+}
 
 /** Query accounts with native sorting and offset pagination. @internal */
 export async function queryAccounts(

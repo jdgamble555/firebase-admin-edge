@@ -17,13 +17,28 @@ describe('form schemas', () => {
 		const { success } = safeParse(emailSchema, input);
 		expect(success).toBe(false);
 	});
-	it.each(['google.com', 'github.com'])('allows linking %s', (provider) => {
+	it.each([
+		'google.com',
+		'github.com',
+		'apple.com',
+		'facebook.com',
+		'twitter.com',
+		'microsoft.com',
+		'yahoo.com'
+	])('allows linking %s', (provider) => {
 		const { success } = safeParse(linkProviderSchema, provider);
 		expect(success).toBe(true);
 	});
-	it.each(['google.com', 'github.com', 'email'])('allows unlinking %s', (provider) => {
-		const { success } = safeParse(unlinkProviderSchema, provider);
-		expect(success).toBe(true);
+	it.each(['google.com', 'github.com', 'apple.com', 'playgames.google.com', 'email'])(
+		'allows unlinking %s',
+		(provider) => {
+			const { success } = safeParse(unlinkProviderSchema, provider);
+			expect(success).toBe(true);
+		}
+	);
+	it.each(['playgames.google.com', 'email'])('rejects browser linking for %s', (provider) => {
+		const { success } = safeParse(linkProviderSchema, provider);
+		expect(success).toBe(false);
 	});
 	it.each(['', 'unknown', null, new Blob()])('rejects unsupported providers %s', (provider) => {
 		const { success: link } = safeParse(linkProviderSchema, provider);

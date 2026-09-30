@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import Logout from '$lib/components/logout.svelte';
@@ -14,13 +15,15 @@
 <main class="mt-5 flex flex-col items-center justify-center gap-5">
 	{@render children()}
 	<nav class="flex items-center justify-center gap-3">
-		<a href="/" class="font-medium text-gray-700 hover:text-blue-600">Home</a>
-		<a href="/about" class="font-medium text-gray-700 hover:text-blue-600">About</a>
+		<a href={resolve('/')} class="font-medium text-gray-700 hover:text-blue-600">Home</a>
+		<a href={resolve('/about')} class="font-medium text-gray-700 hover:text-blue-600">About</a>
 		{#if page.data.user}
 			<Logout />
-			<a href="/dashboard" class="font-medium text-gray-700 hover:text-blue-600">Dashboard</a>
+			<a href={resolve('/dashboard')} class="font-medium text-gray-700 hover:text-blue-600"
+				>Dashboard</a
+			>
 		{:else}
-			<a href="/login" class="font-medium text-gray-700 hover:text-blue-600">Login</a>
+			<a href={resolve('/login')} class="font-medium text-gray-700 hover:text-blue-600">Login</a>
 		{/if}
 	</nav>
 </main>

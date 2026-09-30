@@ -55,9 +55,4 @@
 			{form.message}
 		</p>
 	{/if}
-	<a
-		href="/reset-password"
-		class="mt-5 block text-center text-sm font-medium text-gray-600 underline underline-offset-4 hover:text-gray-900"
-		>Forgot your password?</a
-	>
 </div>

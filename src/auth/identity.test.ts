@@ -9,12 +9,244 @@ import {
 import { FirebaseAdminAuth } from './firebase-admin-auth.js';
 import type { ServiceAccount } from './firebase-types.js';
 import { createUserRecord } from './user-record.js';
+import { ProjectConfigManager } from './project-config-manager.js';
+import { TenantManager } from './tenant-manager.js';
+import { FirebaseEdgeError } from './errors.js';
 
 vi.mock('./firebase-admin-auth.js');
 const account = { project_id: 'project' } as ServiceAccount;
 const queryUsers = vi.mocked(FirebaseAdminAuth.prototype._queryUsers);
 const listUsers = vi.mocked(FirebaseAdminAuth.prototype.listUsers);
 const getUsers = vi.mocked(FirebaseAdminAuth.prototype.getUsers);
+
+it('reads parent project configuration through identity.config.get()', async () => {
+    const execute = vi.fn().mockResolvedValue({
+        error: null,
+        data: { passwordPolicyConfig: { enforcementState: 'ENFORCE' } }
+    });
+    const manager = new ProjectConfigManager(execute);
+    vi.mocked(FirebaseAdminAuth.prototype.projectConfigManager).mockReturnValue(
+        manager
+    );
+    const identity = new Identity(account, { tenantId: 'tenant' });
+
+    expect(execute).not.toHaveBeenCalled();
+    const { error, data } = await identity.config.get();
+    expect(error).toBeNull();
+    expect(data).toEqual({
+        passwordPolicyConfig: { enforcementState: 'ENFORCE' }
+    });
+    expect(execute).toHaveBeenCalledExactlyOnceWith({
+        resource: 'project',
+        action: 'get'
+    });
+});
+
+it('reads single tenant pages with explicit pagination', async () => {
+    const execute = vi.fn().mockResolvedValue({
+        error: null,
+        data: { tenants: [{ tenantId: 'one' }], pageToken: 'next' }
+    });
+    const manager = new TenantManager(execute, vi.fn());
+    vi.mocked(FirebaseAdminAuth.prototype.tenantManager).mockReturnValue(
+        manager
+    );
+    const identity = new Identity(account, { tenantId: 'tenant' });
+
+    expect(execute).not.toHaveBeenCalled();
+    const first = await identity.tenants.limit(1000).get();
+    expect(first).toEqual({
+        error: null,
+        data: { tenants: [{ tenantId: 'one' }], pageToken: 'next' }
+    });
+    expect(execute).toHaveBeenLastCalledWith({
+        resource: 'tenant',
+        action: 'list',
+        maxResults: 1000,
+        pageToken: undefined
+    });
+
+    execute.mockResolvedValueOnce({ error: null, data: { tenants: [] } });
+    const last = await identity.tenants.limit(25).pageToken('next').get();
+    expect(last).toEqual({ error: null, data: { tenants: [] } });
+    expect(execute).toHaveBeenLastCalledWith({
+        resource: 'tenant',
+        action: 'list',
+        maxResults: 25,
+        pageToken: 'next'
+    });
+    execute.mockClear();
+    await identity.tenants.pageToken('next').get();
+    expect(execute).toHaveBeenCalledExactlyOnceWith({
+        resource: 'tenant',
+        action: 'list',
+        maxResults: 1000,
+        pageToken: 'next'
+    });
+});
+
+it('collects all tenants across pages, including empty intermediate pages', async () => {
+    const execute = vi
+        .fn()
+        .mockResolvedValueOnce({
+            error: null,
+            data: { tenants: [{ tenantId: 'one' }], pageToken: 'a' }
+        })
+        .mockResolvedValueOnce({
+            error: null,
+            data: { tenants: [], pageToken: 'b' }
+        })
+        .mockResolvedValueOnce({
+            error: null,
+            data: { tenants: [{ tenantId: 'two' }] }
+        });
+    vi.mocked(FirebaseAdminAuth.prototype.tenantManager).mockReturnValue(
+        new TenantManager(execute, vi.fn())
+    );
+    const identity = new Identity(account);
+    const result = await identity.tenants.get();
+    expect(result).toEqual({
+        error: null,
+        data: { tenants: [{ tenantId: 'one' }, { tenantId: 'two' }] }
+    });
+    for (const [index, pageToken] of [undefined, 'a', 'b'].entries()) {
+        expect(execute).toHaveBeenNthCalledWith(index + 1, {
+            resource: 'tenant',
+            action: 'list',
+            maxResults: 1000,
+            pageToken
+        });
+    }
+    expect(execute).toHaveBeenCalledTimes(3);
+    execute.mockResolvedValue({ error: null, data: { tenants: [] } });
+    const empty = await identity.tenants.get();
+    expect(empty).toEqual({ error: null, data: { tenants: [] } });
+});
+
+it('discards partial tenants on later-page errors and stops repeated tokens', async () => {
+    const error = new FirebaseEdgeError({
+        code: 'auth/internal-error',
+        message: 'Failed page'
+    });
+    const execute = vi
+        .fn()
+        .mockResolvedValueOnce({
+            error: null,
+            data: { tenants: [{ tenantId: 'one' }], pageToken: 'a' }
+        })
+        .mockResolvedValueOnce({ error, data: null });
+    vi.mocked(FirebaseAdminAuth.prototype.tenantManager).mockReturnValue(
+        new TenantManager(execute, vi.fn())
+    );
+    const identity = new Identity(account);
+    const failed = await identity.tenants.get();
+    expect(failed).toEqual({ error, data: null });
+    execute.mockClear().mockResolvedValue({
+        error: null,
+        data: { tenants: [], pageToken: 'same' }
+    });
+    const repeated = await identity.tenants.get();
+    expect(repeated).toMatchObject({
+        data: null,
+        error: { code: 'auth/internal-error' }
+    });
+    expect(execute).toHaveBeenCalledTimes(2);
+});
+
+it('keeps tenant query branches immutable and replaces pagination settings', async () => {
+    const execute = vi
+        .fn()
+        .mockResolvedValue({ error: null, data: { tenants: [] } });
+    vi.mocked(FirebaseAdminAuth.prototype.tenantManager).mockReturnValue(
+        new TenantManager(execute, vi.fn())
+    );
+    const identity = new Identity(account);
+    const base = identity.tenants;
+    const limited = base.limit(10);
+    const paged = limited.pageToken('first');
+    const replaced = paged.pageToken('second').limit(20);
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(base).not.toHaveProperty('offset');
+    for (const [query, maxResults, pageToken] of [
+        [replaced, 20, 'second'],
+        [paged, 10, 'first'],
+        [limited, 10, undefined],
+        [base, 1000, undefined],
+        [base.pageToken('next').limit(1), 1, 'next']
+    ] as const) {
+        await query.get();
+        expect(execute).toHaveBeenLastCalledWith({
+            resource: 'tenant',
+            action: 'list',
+            maxResults,
+            pageToken
+        });
+    }
+});
+
+it.each([0, -1, 1001, 1.5, NaN, Infinity, undefined, null, '10'])(
+    'rejects invalid tenant limits before requesting tenants: %s',
+    (value) => {
+        const identity = new Identity(account);
+        expect(() => identity.tenants.limit(value as number)).toThrow(
+            'Tenant limit'
+        );
+        expect(
+            FirebaseAdminAuth.prototype.tenantManager
+        ).not.toHaveBeenCalled();
+    }
+);
+
+it.each(['', undefined, null, 123])(
+    'rejects invalid tenant page tokens before requesting tenants: %s',
+    (value) => {
+        const identity = new Identity(account);
+        expect(() => identity.tenants.pageToken(value as string)).toThrow(
+            'pageToken'
+        );
+        expect(
+            FirebaseAdminAuth.prototype.tenantManager
+        ).not.toHaveBeenCalled();
+    }
+);
+
+it('preserves configuration and tenant errors from the existing managers', async () => {
+    const error = new FirebaseEdgeError({
+        code: 'auth/invalid-argument',
+        message: 'Invalid request.'
+    });
+    const execute = vi.fn().mockResolvedValue({ error, data: null });
+    vi.mocked(FirebaseAdminAuth.prototype.projectConfigManager).mockReturnValue(
+        new ProjectConfigManager(execute)
+    );
+    vi.mocked(FirebaseAdminAuth.prototype.tenantManager).mockReturnValue(
+        new TenantManager(execute, vi.fn())
+    );
+    const identity = new Identity(account);
+
+    const config = await identity.config.get();
+    const tenants = await identity.tenants.get();
+    expect(config).toEqual({ error, data: null });
+    expect(tenants).toEqual({ error, data: null });
+    expect(execute).toHaveBeenLastCalledWith({
+        resource: 'tenant',
+        action: 'list',
+        maxResults: 1000,
+        pageToken: undefined
+    });
+});
+
+it('exposes provider discovery on identity.providers.get()', async () => {
+    const identity = new Identity(account, { tenantId: 'tenant' });
+    vi.mocked(FirebaseAdminAuth.prototype._getProviders).mockResolvedValue({
+        data: [],
+        error: null
+    });
+    const result = await identity.providers.get();
+    expect(result).toEqual({ data: [], error: null });
+    expect(FirebaseAdminAuth.prototype._getProviders).toHaveBeenCalledOnce();
+});
 
 interface TestClaims {
     role: 'viewer' | 'editor';

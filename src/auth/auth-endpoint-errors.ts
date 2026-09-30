@@ -34,19 +34,51 @@ export function mapFirebaseError(
 ): FirebaseEdgeError {
     const { code, message, errors } = firebaseError;
 
-    if (message?.includes('EXPIRED_OOB_CODE'))
+    const firebaseErrorCode = message?.toUpperCase?.() || '';
+    const primaryErrorCode = firebaseErrorCode.split(':', 1)[0]?.trim();
+
+    // Provider diagnostics can contain other error codes and credentials. Keep
+    // only fixed diagnostic labels, never the raw response or nested errors.
+    if (primaryErrorCode === 'INVALID_IDP_RESPONSE') {
+        return new FirebaseEdgeError(
+            FirebaseEndpointErrorInfo.ENDPOINT_PROVIDER_AUTHENTICATION_FAILED,
+            {
+                context: {
+                    firebaseCode: code,
+                    firebaseErrorCode: 'INVALID_IDP_RESPONSE',
+                    ...(/\bINVALID_CLIENT\b/.test(firebaseErrorCode) && {
+                        oauthError: 'invalid_client'
+                    }),
+                    ...(firebaseErrorCode.includes(
+                        'THE PROVIDED CLIENT SECRET IS INVALID'
+                    ) && {
+                        diagnostic: 'invalid-client-secret'
+                    })
+                }
+            }
+        );
+    }
+
+    if (primaryErrorCode === 'INVALID_PROVIDER_ID') {
+        return new FirebaseEdgeError(
+            FirebaseEndpointErrorInfo.ENDPOINT_INVALID_PROVIDER_ID
+        );
+    }
+
+    if (message?.includes('EXPIRED_OOB_CODE')) {
         return new FirebaseEdgeError({
             code: 'auth/expired-action-code',
             message: 'This email link has expired. Request a new one.'
         });
-    if (message?.includes('INVALID_OOB_CODE'))
+    }
+    if (message?.includes('INVALID_OOB_CODE')) {
         return new FirebaseEdgeError({
             code: 'auth/invalid-action-code',
             message: 'This email link is invalid or has already been used.'
         });
+    }
 
     // First, check for specific Firebase error codes in the message field
-    const firebaseErrorCode = message?.toUpperCase?.() || '';
     const reasonCode = errors?.[0]?.reason?.toUpperCase?.() || '';
 
     // Map specific Firebase error codes to structured errors (check if message contains the error code)
@@ -125,11 +157,6 @@ export function mapFirebaseError(
     if (firebaseErrorCode.includes('OPERATION_NOT_ALLOWED')) {
         return new FirebaseEdgeError(
             FirebaseEndpointErrorInfo.ENDPOINT_PROVIDER_NOT_ENABLED
-        );
-    }
-    if (firebaseErrorCode.includes('INVALID_IDP_RESPONSE')) {
-        return new FirebaseEdgeError(
-            FirebaseEndpointErrorInfo.ENDPOINT_INVALID_PROVIDER_ID
         );
     }
 

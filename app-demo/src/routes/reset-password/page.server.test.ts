@@ -11,7 +11,7 @@ it.each([
 		error: code === 'success' ? null : { code, message: 'Cannot send email' }
 	});
 	const event = {
-		locals: { authServer: { sendPasswordResetEmail } },
+		locals: { fbServer: { sendPasswordResetEmail } },
 		request: new Request('https://app/reset-password', {
 			method: 'POST',
 			body: new URLSearchParams({ email: ' user@example.com ' })
@@ -31,7 +31,7 @@ it.each(['', 'invalid', ' '])(
 	async (email) => {
 		const sendPasswordResetEmail = vi.fn();
 		const event = {
-			locals: { authServer: { sendPasswordResetEmail } },
+			locals: { fbServer: { sendPasswordResetEmail } },
 			request: new Request('https://app/reset-password', {
 				method: 'POST',
 				body: new URLSearchParams({ email })

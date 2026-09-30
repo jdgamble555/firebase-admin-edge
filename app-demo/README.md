@@ -20,9 +20,9 @@ Use your project's actual service account and web app configuration. Keep servic
 account credentials private and out of source control. The public config identifies
 the Firebase project; it is not a Google or GitHub OAuth client secret.
 
-`src/hooks.server.ts` creates `event.locals.authServer` for each request, connects
+`src/hooks.server.ts` creates `event.locals.fbServer` for each request, connects
 SvelteKit cookies, shares a token cache, and sets `redirectUri` to the request
-origin plus `/auth/callback`. Server files use `locals.authServer` directly.
+origin plus `/auth/callback`. Server files use `locals.fbServer` directly.
 The root layout returns the signed-in user to pages.
 
 ## Google and GitHub
@@ -51,7 +51,7 @@ settings as `https://your-demo-domain/auth/callback`, using HTTPS in production.
 The login form calls:
 
 ```ts
-const { error } = await authServer.sendSignInLinkToEmail(email, '/dashboard', {
+const { error } = await fbServer.sendSignInLinkToEmail(email, '/dashboard', {
 	includeEmailInLink: true
 });
 if (error) throw error;
@@ -70,10 +70,10 @@ sign in. See [all magic-link options](../docs/FIREBASE_EDGE_SERVER.md#magic-link
 
 ## Password Reset and Change Email
 
-- Choose **Forgot your password?** on `/login`, enter the account email at
+- Choose **Reset password** on `/dashboard`, enter the account email at
   `/reset-password`, and open the emailed link. The shared callback shows password
   and confirmation fields. Submit to complete the reset.
-- On `/dashboard`, enter a new email address and confirm the link sent there.
+- While signed in, open `/change-email`, enter a new email address, and confirm the link sent there.
   The original email remains until verification succeeds. A session older than
   five minutes requires signing out and back in before requesting the change.
 
@@ -85,15 +85,15 @@ or GitHub password. Email changes do not change upstream provider profiles.
 
 ```ts
 // /reset-password server action
-const { error: sentError } = await authServer.sendPasswordResetEmail(email);
+const { error: sentError } = await fbServer.sendPasswordResetEmail(email);
 if (sentError) throw sentError;
 
-// Authenticated dashboard action
-const { error: changeError } = await authServer.verifyBeforeUpdateEmail(newEmail);
+// Authenticated /change-email action
+const { error: changeError } = await fbServer.verifyBeforeUpdateEmail(newEmail);
 if (changeError) throw changeError;
 
 // One callback POST handler for all flows
-const { error, data } = await authServer.handleCallback(url, {
+const { error, data } = await fbServer.handleCallback(url, {
 	email,
 	newPassword: password,
 	confirmPassword
@@ -111,7 +111,7 @@ See [the full API guide](../docs/FIREBASE_EDGE_SERVER.md#password-reset-and-emai
 ## Firestore Example
 
 `/about` loads `about/ZlNJrKd6LcATycPRmBPA` using
-`locals.authServer.firestore.doc(...).withConverter(aboutConverter).get()` in
+`locals.fbServer.firestore.doc(...).withConverter(aboutConverter).get()` in
 `+page.server.ts`. Create that document with `name` and `description` fields or
 change the path for your project. A missing document returns a 404. The converter
 keeps the data passed to the Svelte page serializable.
@@ -129,14 +129,25 @@ Tests cover server actions, browser components, and a Playwright smoke test. The
 do not send real authentication emails or verify a live provider sign-in. Configure
 the SvelteKit adapter and private environment variables for your deployment.
 
-The callback load calls `authServer.getCallbackAction(url)` and renders its
+The callback load calls `fbServer.getCallbackAction(url)` and renders its
 `{ hasLink, actionMode }` result for email actions. It completes provider callbacks
-with `authServer.handleCallback(url)`. The POST action also uses `handleCallback`,
+with `fbServer.handleCallback(url)`. The POST action also uses `handleCallback`,
 passing submitted fields. Mode detection, wrapped-link parsing, password matching,
 and account-action dispatch live in the core, not the SvelteKit route.
 See [shared callback handling](../docs/FIREBASE_EDGE_SERVER.md#shared-callback-handling).
 
 ## Form Validation
+
+The dashboard reads enabled standard providers with
+`fbServer.identity.providers.get()` and compares them with the signed-in user's
+linked identities. Enabled browser providers can be connected; already-linked
+providers remain available to disconnect even if disabled in the project. Linking
+checks the enabled list again on submission. Play Games uses a native credential
+flow, so the dashboard only offers disconnecting it when already linked.
+
+Provider discovery requires the service account's `firebaseauth.configs.get`
+permission. The current provider discovery API covers standard federated providers;
+local sign-in methods and custom OIDC/SAML providers are not discovered here.
 
 The demo uses Valibot's `safeParse` with shared schemas in
 `src/lib/form-schemas.ts`. Email forms trim and validate addresses, provider forms
@@ -152,7 +163,7 @@ import { emailSchema } from '$lib/form-schemas';
 const form = await request.formData();
 const { success, output: email, issues } = safeParse(emailSchema, form.get('email'));
 if (!success) return fail(400, { message: issues[0].message });
-const { error } = await authServer.sendPasswordResetEmail(email);
+const { error } = await fbServer.sendPasswordResetEmail(email);
 if (error) return fail(400, { message: error.message });
 ```
 

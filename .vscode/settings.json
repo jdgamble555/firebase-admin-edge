@@ -1,5 +1,7 @@
 {
     "editor.formatOnSave": true,
+    "eslint.workingDirectories": ["./app-demo"],
+    "eslint.validate": ["javascript", "typescript", "svelte"],
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "[svelte]": {
         "editor.defaultFormatter": "svelte.svelte-vscode"

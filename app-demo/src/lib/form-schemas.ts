@@ -1,4 +1,5 @@
 import * as v from 'valibot';
+import { FIREBASE_PROVIDER_IDS } from 'firebase-admin-edge';
 
 export const emailSchema = v.pipe(
 	v.string('Enter your email address.'),
@@ -6,11 +7,15 @@ export const emailSchema = v.pipe(
 	v.email('Enter a valid email address.')
 );
 
-export const linkProviderSchema = v.picklist(['google.com', 'github.com'], 'Unsupported provider');
+const providerIds = Object.values(FIREBASE_PROVIDER_IDS);
+export const linkProviderSchema = v.picklist(
+	providerIds.filter((provider) => provider !== 'playgames.google.com'),
+	'Unsupported provider'
+);
 export const unlinkProviderSchema = v.pipe(
 	v.string('No provider specified'),
 	v.nonEmpty('No provider specified'),
-	v.picklist(['google.com', 'github.com', 'email'], 'Unsupported provider')
+	v.picklist([...providerIds, 'email'], 'Unsupported provider')
 );
 
 // Optional fields serve several callback forms. Core validates the active action,

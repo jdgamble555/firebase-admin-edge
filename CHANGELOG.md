@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 3.1.0
+
+### Minor Changes
+
+- bd65d45: Add remote config
+
 ## 3.0.2
 
 ### Patch Changes

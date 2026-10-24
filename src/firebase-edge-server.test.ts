@@ -9,12 +9,14 @@ import { FirebaseEdgeServerErrorInfo } from './firebase-edge-errors.js';
 import { AppCheck } from './app-check/app-check.js';
 import { Storage } from './storage/storage.js';
 import { Identity } from './auth/identity.js';
+import { RemoteConfig } from './remote-config/remote-config.js';
 
 // Mock dependencies
 vi.mock('./auth/firebase-admin-auth.js');
 vi.mock('./db/firestore.js');
 vi.mock('./app-check/app-check.js');
 vi.mock('./storage/storage.js');
+vi.mock('./remote-config/remote-config.js');
 vi.mock('./auth/identity.js');
 vi.mock('./auth/firebase-auth.js');
 vi.mock('./auth/firebase-jwt.js');
@@ -71,6 +73,15 @@ describe('createFirebaseEdgeServer', () => {
     it('exposes App Check with the configured service account', () => {
         expect(server.appCheck).toBeInstanceOf(AppCheck);
         expect(AppCheck).toHaveBeenCalledWith(mockServiceAccount, {
+            fetch: globalThis.fetch,
+            cache: undefined,
+            cacheName: undefined
+        });
+    });
+
+    it('exposes Remote Config with the configured service account', () => {
+        expect(server.remoteConfig).toBeInstanceOf(RemoteConfig);
+        expect(RemoteConfig).toHaveBeenCalledWith(mockServiceAccount, {
             fetch: globalThis.fetch,
             cache: undefined,
             cacheName: undefined

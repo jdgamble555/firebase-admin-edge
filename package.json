@@ -30,7 +30,8 @@
         "url": "git+https://github.com/jdgamble555/firebase-admin-edge.git"
     },
     "files": [
-        "dist"
+        "dist",
+        "THIRD_PARTY_NOTICES.md"
     ],
     "type": "module",
     "main": "dist/index.js",

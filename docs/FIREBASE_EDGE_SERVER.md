@@ -42,6 +42,18 @@ console.log(data.users);
 
 For App Check through `firebaseServer.appCheck`, see the [AppCheck guide](APP_CHECK.md).
 
+For Remote Config through `firebaseServer.remoteConfig`, see the
+[RemoteConfig guide](REMOTE_CONFIG.md). It shares the server's service account,
+fetch implementation, and token cache.
+
+```ts
+const { error, data } = await firebaseServer.remoteConfig.getTemplate();
+if (error) {
+    throw error;
+}
+console.log(data.parameters);
+```
+
 For file operations through `firebaseServer.storage`, set
 `firebaseConfig.storageBucket` to your bucket name and see the [Storage guide](STORAGE.md).
 

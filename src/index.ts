@@ -1,6 +1,7 @@
 export * from './firebase-edge-server.js';
 export * from './app-check/app-check.js';
 export * from './storage/storage.js';
+export * from './remote-config/remote-config.js';
 export * from './auth/firebase-auth.js';
 export * from './auth/firebase-admin-auth.js';
 export * from './auth/identity.js';

@@ -30,6 +30,8 @@ framework's cookie helpers to connect authentication to your app.
 - **Cloud Storage:** Manage buckets and files, stream uploads and downloads,
   and create signed URLs.
 - **App Check:** Create and verify tokens, with replay protection support.
+- **Remote Config:** Manage templates and version history, and evaluate server
+  configuration with conditions and typed values.
 - **TypeScript:** Typed APIs with configurable cookies, token caching, and fetch.
 
 ## Installation
@@ -83,8 +85,8 @@ Your callback route completes sign-in and saves the session cookie. Follow the
 for the route implementation, or use the [demo](app-demo/README.md) as a working
 example.
 
-The same server object exposes `auth`, `adminAuth`, `firestore`, `storage`, and
-`appCheck`. See the [server guide](docs/FIREBASE_EDGE_SERVER.md) for configuration,
+The same server object exposes `auth`, `adminAuth`, `firestore`, `storage`,
+`appCheck`, and `remoteConfig`. See the [server guide](docs/FIREBASE_EDGE_SERVER.md) for configuration,
 providers, session handling, and examples. For Storage, also set
 `firebaseConfig.storageBucket` to your bucket name.
 
@@ -100,18 +102,19 @@ Start with the guide for the feature you're adding:
 
 For fluent Firebase Auth user queries, see [Identity](docs/IDENTITY.md).
 
-| Guide                                                                          | What It Covers                                             |
-| ------------------------------------------------------------------------------ | ---------------------------------------------------------- |
-| [Firebase Edge Server](docs/FIREBASE_EDGE_SERVER.md)                           | App setup, sign-in, callbacks, and sessions                |
-| [FirebaseAdminAuth](docs/FIREBASE_ADMIN_AUTH.md)                               | User management, token verification, and session cookies   |
-| [FirebaseAuth](docs/FIREBASE_AUTH.md)                                          | Authentication operations and provider credentials         |
-| [Firestore](docs/FIRESTORE.md)                                                 | Documents, queries, transactions, and related class guides |
-| [Storage](docs/STORAGE.md), [Bucket](docs/BUCKET.md), and [File](docs/FILE.md) | File transfers, signed URLs, and bucket administration     |
-| [AppCheck](docs/APP_CHECK.md)                                                  | Token creation, verification, and replay protection        |
-| [ProjectConfigManager](docs/PROJECT_CONFIG_MANAGER.md)                         | Project authentication settings                            |
-| [TenantManager](docs/TENANT_MANAGER.md)                                        | Tenant management and authentication                       |
-| [TokenCache](docs/TOKEN_CACHE.md)                                              | In-memory token caching                                    |
-| [FirebaseEdgeError](docs/FIREBASE_EDGE_ERROR.md)                               | Error codes, causes, and context                           |
+| Guide                                                                          | What It Covers                                                  |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| [Firebase Edge Server](docs/FIREBASE_EDGE_SERVER.md)                           | App setup, sign-in, callbacks, and sessions                     |
+| [FirebaseAdminAuth](docs/FIREBASE_ADMIN_AUTH.md)                               | User management, token verification, and session cookies        |
+| [FirebaseAuth](docs/FIREBASE_AUTH.md)                                          | Authentication operations and provider credentials              |
+| [Firestore](docs/FIRESTORE.md)                                                 | Documents, queries, transactions, and related class guides      |
+| [Storage](docs/STORAGE.md), [Bucket](docs/BUCKET.md), and [File](docs/FILE.md) | File transfers, signed URLs, and bucket administration          |
+| [AppCheck](docs/APP_CHECK.md)                                                  | Token creation, verification, and replay protection             |
+| [RemoteConfig](docs/REMOTE_CONFIG.md)                                          | Client templates, versions, and server configuration evaluation |
+| [ProjectConfigManager](docs/PROJECT_CONFIG_MANAGER.md)                         | Project authentication settings                                 |
+| [TenantManager](docs/TENANT_MANAGER.md)                                        | Tenant management and authentication                            |
+| [TokenCache](docs/TOKEN_CACHE.md)                                              | In-memory token caching                                         |
+| [FirebaseEdgeError](docs/FIREBASE_EDGE_ERROR.md)                               | Error codes, causes, and context                                |
 
 See [Standalone Functions](docs/FUNCTIONS.md) for the function reference and
 [Integration Testing](docs/INTEGRATION_TESTING.md) for local runtime checks and

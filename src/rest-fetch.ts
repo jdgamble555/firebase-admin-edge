@@ -8,7 +8,7 @@ export const restFetch = async <T, A>(
         form?: boolean;
         acceptJson?: boolean;
         bearerToken?: string;
-        method?: 'POST' | 'GET' | 'PATCH' | 'DELETE';
+        method?: 'POST' | 'GET' | 'PATCH' | 'DELETE' | 'PUT';
         global?: {
             fetch?: typeof fetch;
         };

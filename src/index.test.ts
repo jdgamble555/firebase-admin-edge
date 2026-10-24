@@ -23,6 +23,10 @@ it('exports the shared error class and Firestore error definitions', () => {
 it('exports the complete requested class list as runtime constructors', () => {
     for (const name of [
         'AppCheck',
+        'RemoteConfig',
+        'RemoteConfigTemplate',
+        'ServerTemplate',
+        'RemoteConfigFetchResponse',
         'Identity',
         'IdentityQuery',
         'IdentityCountQuery',

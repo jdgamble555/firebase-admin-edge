@@ -15,6 +15,7 @@ import { Identity } from './auth/identity.js';
 import { Firestore } from './db/firestore.js';
 import { AppCheck } from './app-check/app-check.js';
 import { Storage } from './storage/storage.js';
+import { RemoteConfig } from './remote-config/remote-config.js';
 import { FirebaseAuth } from './auth/firebase-auth.js';
 import { resolveAuthEmulatorHost } from './auth/auth-emulator.js';
 import type {
@@ -154,6 +155,11 @@ export function createFirebaseEdgeServer({
     });
 
     const appCheck = new AppCheck(serviceAccount, {
+        fetch: fetchImpl,
+        cache: cacheImpl,
+        cacheName
+    });
+    const remoteConfig = new RemoteConfig(serviceAccount, {
         fetch: fetchImpl,
         cache: cacheImpl,
         cacheName
@@ -1121,6 +1127,7 @@ export function createFirebaseEdgeServer({
         firestore,
         identity,
         appCheck,
+        remoteConfig,
         storage,
         sendSignInLinkToEmail,
         getCallbackAction,

@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 3.2.0
+
+### Minor Changes
+
+- 3051f16: impersonate
+
 ## 3.1.0
 
 ### Minor Changes

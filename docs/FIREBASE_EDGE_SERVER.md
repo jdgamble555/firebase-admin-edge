@@ -11,6 +11,7 @@
 - [Auth emulator](#auth-emulator)
 - [Provider login and linking](#provider-login-and-linking)
 - [Users and sessions](#users-and-sessions)
+- [User impersonation](#user-impersonation)
 - [Link and unlink accounts](#link-and-unlink-accounts)
 - [Configuration reference](#configuration-reference)
 - [All server methods](#all-server-methods)
@@ -296,14 +297,124 @@ if (error) {
 // Otherwise, it contains idToken, refreshToken, and expiresIn.
 ```
 
+Token generation is unavailable during impersonation. It returns
+`edge/impersonation-not-allowed` rather than issuing renewable client credentials
+for the target user.
+
 ### Sign out
 
 ```ts
-firebaseServer.signOut();
+await firebaseServer.signOut();
 redirect(302, '/');
 ```
 
-This clears the session cookie. It does not revoke existing Firebase client tokens.
+This clears the active session, preserved impersonation actor, and pending OAuth
+flow. Await it before redirecting so asynchronous cookie adapters finish writing.
+It does not revoke existing Firebase client tokens.
+
+## User impersonation
+
+`impersonateUser(uid, expiresInMs?)` temporarily replaces the active session with
+an existing, enabled user's session. It uses your existing cookie adapter and
+cookie options; no additional setup is required.
+
+This is a privileged server operation. Your application must authorize the actor
+and target before calling it, and protect the POST handler against CSRF. The
+library verifies the signed-in actor with revocation checking but does not impose
+an application role such as `admin`.
+
+For example, in an authorized POST handler with an application-defined `admin`
+custom claim:
+
+```ts
+const { error: actorError, data: actor } = await firebaseServer.getUser(true);
+if (actorError) {
+    throw actorError;
+}
+if (actor?.admin !== true) {
+    throw new Error('Forbidden');
+}
+
+// Apply your application's target-user access policy before this call.
+const { error, data } = await firebaseServer.impersonateUser(targetUid);
+if (error) {
+    throw error;
+}
+
+console.log(data.uid, data.impersonation.actorUid);
+```
+
+The default duration is fifteen minutes. A custom duration is in milliseconds,
+between five minutes and fourteen days, capped at the original session's remaining
+lifetime. The original session must have at least five minutes remaining.
+For a five-minute impersonation, use:
+
+```ts
+const { error } = await firebaseServer.impersonateUser(
+    targetUid,
+    5 * 60 * 1000
+);
+if (error) {
+    throw error;
+}
+```
+
+The target must exist in the configured Auth tenant (or project when no tenant is
+configured). Self-impersonation and nested impersonation are rejected. The library
+creates a custom token with a signed `impersonation` claim, exchanges it internally,
+and saves a session cookie. It does not change either account's stored custom
+claims or return the target's ID token or refresh token.
+
+`getUser()` returns the target's decoded claims and typed impersonation context:
+
+```ts
+const { error, data: user } = await firebaseServer.getUser();
+if (error) {
+    throw error;
+}
+
+if (user?.impersonation) {
+    console.log({
+        targetUid: user.sub,
+        actorUid: user.impersonation.actorUid,
+        expiresAt: new Date(user.impersonation.expiresAt)
+    });
+}
+```
+
+`expiresAt` is an absolute Unix timestamp in milliseconds. The `impersonation`
+claim is reserved for this feature. `getUser()` validates its expiration and
+verifies the preserved actor with revocation checking on every impersonated
+request. Removing the actor cookie cannot turn the target session into a normal
+session. Invalid or expired target sessions are cleared while retaining a valid
+actor cookie for restoration; missing, mismatched, revoked, or nested actors cause
+both sessions and the pending provider flow to be cleared.
+
+Restore the original account from your protected stop-impersonation POST handler:
+
+```ts
+const { error, data: actor } = await firebaseServer.stopImpersonating();
+if (error) {
+    throw error;
+}
+
+console.log(actor.sub);
+```
+
+Restoration verifies the original session, including revocation and tenant checks,
+and reuses that cookie without minting a new admin session. It also works after
+the target session expires or is cleared. An expired, disabled, deleted, or revoked
+original account cannot be restored. Calling it without a preserved session
+returns `edge/no-impersonation-session` and leaves a normal login unchanged.
+
+During impersonation, `getToken()`, `linkProvider()`, `unlinkProvider()`,
+`getProviderLinkURL()` (including provider-specific aliases), linking callbacks,
+and `verifyBeforeUpdateEmail()` reject with `edge/impersonation-not-allowed`.
+Starting a new provider sign-in or completing a new provider/magic-link login
+discards the preserved actor. Successful password resets and email actions clear
+both sessions through `signOut()`. Low-level `auth` and `adminAuth` APIs remain
+privileged tools for your server; these restrictions apply to the top-level
+session methods.
 
 ## Link and unlink accounts
 
@@ -397,13 +508,20 @@ its authorization URLs from Firebase; it does not accept provider client IDs or 
 `cookies.getSession(name)` returns a cookie string, `null`, or `undefined`,
 synchronously or via a promise. `cookies.saveSession(name, value, options)`
 returns `void` or `Promise<void>` and must apply the supplied name and options.
-Deletion writes an empty value with `maxAge: 0`. Current sign-out and login
-session-clearing operations do not await asynchronous cookie writes; use an
-adapter that registers those writes immediately on the response.
+Deletion writes an empty value with `maxAge: 0`. Session-clearing operations await
+asynchronous cookie writes. `signOut()` returns `Promise<void>`; await it before
+returning or redirecting from your handler.
 
 The temporary managed-flow cookie inherits cookie options but overrides
 `httpOnly: true`, `secure: true`, `sameSite: 'none'`, and `maxAge: 600`.
 Its name is `<cookieName>_oauth`.
+
+Impersonation preserves the original session in `<cookieName>_actor` and replaces
+`<cookieName>` with the target session. Both inherit `cookieOptions`; their
+`maxAge` values are capped by the configured maximum and the respective signed
+expiration. Restoration also caps the browser lifetime at the original signed
+expiration instead of extending the original session. The default cookie names
+are `__session` and `__session_actor`.
 
 ### Cache callbacks
 
@@ -433,44 +551,46 @@ See [TokenCache](TOKEN_CACHE.md) for cache lifetime behavior.
 
 ## All server methods
 
-The returned object exposes these 31 methods plus `auth`, `adminAuth`, and
+The returned object exposes these methods plus `auth`, `adminAuth`, and
 `firestore`. Each URL method returns `Promise<string>` and may throw. Other async
 methods return results containing `data` and/or `error`; check `error` first.
-`signOut()` returns `void`.
+`signOut()` returns `Promise<void>` and rejects if a cookie adapter fails.
 
-| Method                                                     | Behavior                                                                                                                                      |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `getCallbackAction(url)`                                   | Inspects email-action links for rendering; returns null for OAuth without consuming codes.                                                    |
-| `handleCallback(url, options?)`                            | Completes OAuth, magic links, password reset, verification, email change, or recovery.                                                        |
-| `sendPasswordResetEmail(email, locale?)`                   | Sends Firebase's password reset email using the configured callback.                                                                          |
-| `confirmPasswordReset(oobCode, newPassword)`               | Completes the reset and clears the local session on success.                                                                                  |
-| `verifyBeforeUpdateEmail(newEmail, locale?)`               | Sends verification to a new address for the recently signed-in user.                                                                          |
-| `applyActionCode(oobCode)`                                 | Applies email verification/change/recovery and clears the local session on success.                                                           |
-| `sendSignInLinkToEmail(email, next?, options?)`            | Sends a Firebase magic link; optionally carries email in encrypted state.                                                                     |
-| `getProviderLoginURL(provider, next, options?)`            | Starts Firebase-managed authorization and clears the current session after successful initiation.                                             |
-| `getProviderLinkURL(provider, next, options?)`             | Starts managed linking; requires a signed-in user and preserves the current session.                                                          |
-| `getFacebookLoginURL(next, options?)`                      | Managed Facebook sign-in.                                                                                                                     |
-| `getFacebookLinkURL(next, options?)`                       | Managed Facebook linking.                                                                                                                     |
-| `getAppleLoginURL(next, options?)`                         | Managed Apple sign-in.                                                                                                                        |
-| `getAppleLinkURL(next, options?)`                          | Managed Apple linking.                                                                                                                        |
-| `getTwitterLoginURL(next, options?)`                       | Managed Twitter sign-in.                                                                                                                      |
-| `getTwitterLinkURL(next, options?)`                        | Managed Twitter linking.                                                                                                                      |
-| `getMicrosoftLoginURL(next, options?)`                     | Managed Microsoft sign-in.                                                                                                                    |
-| `getMicrosoftLinkURL(next, options?)`                      | Managed Microsoft linking.                                                                                                                    |
-| `getYahooLoginURL(next, options?)`                         | Managed Yahoo sign-in.                                                                                                                        |
-| `getYahooLinkURL(next, options?)`                          | Managed Yahoo linking.                                                                                                                        |
-| `getGoogleLoginURL(next, options?)`                        | Managed Google sign-in; alias for `getProviderLoginURL('google', next, options)`.                                                             |
-| `getGitHubLoginURL(next, options?)`                        | Managed GitHub sign-in; alias for `getProviderLoginURL('github', next, options)`.                                                             |
-| `getGoogleLinkURL(next, options?)`                         | Managed Google linking; requires a signed-in user.                                                                                            |
-| `getGitHubLinkURL(next, options?)`                         | Managed GitHub linking; requires a signed-in user and preserves linking intent.                                                               |
-| `signInWithCallback(url, optionsOrExpiresInMs?)`           | Completes provider callbacks using the flow cookie, or magic links using encrypted link state. Saves a session and returns the redirect path. |
-| `signInWithProviderCallback(url, postBody?, expiresInMs?)` | Completes managed GET or form POST callbacks for sign-in/linking. Saves a session and returns the redirect path.                              |
-| `signInWithProviderToken(provider, credential)`            | Exchanges a credential for Firebase sign-in data; does not save a session cookie.                                                             |
-| `getUser(checkRevoked?)`                                   | Verifies the current session and returns decoded claims, or `data: null` without a session. Invalid sessions are cleared.                     |
-| `getToken()`                                               | Creates and exchanges a custom token for the current user, returning Firebase login tokens; `data: null` without a session.                   |
-| `linkProvider(credential, providerId)`                     | Links a credential to the current user; does not replace the session cookie. Returns `data: null, error: null` without a session.             |
-| `unlinkProvider(providerId, expiresInMs?)`                 | Unlinks a provider and replaces the session cookie. Returns `data: null, error: null` without a session.                                      |
-| `signOut()`                                                | Clears the main session cookie; does not revoke Firebase client tokens.                                                                       |
+| Method                                                     | Behavior                                                                                                                                              |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getCallbackAction(url)`                                   | Inspects email-action links for rendering; returns null for OAuth without consuming codes.                                                            |
+| `handleCallback(url, options?)`                            | Completes OAuth, magic links, password reset, verification, email change, or recovery.                                                                |
+| `sendPasswordResetEmail(email, locale?)`                   | Sends Firebase's password reset email using the configured callback.                                                                                  |
+| `confirmPasswordReset(oobCode, newPassword)`               | Completes the reset and clears the local session on success.                                                                                          |
+| `verifyBeforeUpdateEmail(newEmail, locale?)`               | Sends verification to a new address for the recently signed-in user.                                                                                  |
+| `applyActionCode(oobCode)`                                 | Applies email verification/change/recovery and clears the local session on success.                                                                   |
+| `sendSignInLinkToEmail(email, next?, options?)`            | Sends a Firebase magic link; optionally carries email in encrypted state.                                                                             |
+| `getProviderLoginURL(provider, next, options?)`            | Starts Firebase-managed authorization and clears the current session after successful initiation.                                                     |
+| `getProviderLinkURL(provider, next, options?)`             | Starts managed linking; requires a signed-in user and preserves the current session.                                                                  |
+| `getFacebookLoginURL(next, options?)`                      | Managed Facebook sign-in.                                                                                                                             |
+| `getFacebookLinkURL(next, options?)`                       | Managed Facebook linking.                                                                                                                             |
+| `getAppleLoginURL(next, options?)`                         | Managed Apple sign-in.                                                                                                                                |
+| `getAppleLinkURL(next, options?)`                          | Managed Apple linking.                                                                                                                                |
+| `getTwitterLoginURL(next, options?)`                       | Managed Twitter sign-in.                                                                                                                              |
+| `getTwitterLinkURL(next, options?)`                        | Managed Twitter linking.                                                                                                                              |
+| `getMicrosoftLoginURL(next, options?)`                     | Managed Microsoft sign-in.                                                                                                                            |
+| `getMicrosoftLinkURL(next, options?)`                      | Managed Microsoft linking.                                                                                                                            |
+| `getYahooLoginURL(next, options?)`                         | Managed Yahoo sign-in.                                                                                                                                |
+| `getYahooLinkURL(next, options?)`                          | Managed Yahoo linking.                                                                                                                                |
+| `getGoogleLoginURL(next, options?)`                        | Managed Google sign-in; alias for `getProviderLoginURL('google', next, options)`.                                                                     |
+| `getGitHubLoginURL(next, options?)`                        | Managed GitHub sign-in; alias for `getProviderLoginURL('github', next, options)`.                                                                     |
+| `getGoogleLinkURL(next, options?)`                         | Managed Google linking; requires a signed-in user.                                                                                                    |
+| `getGitHubLinkURL(next, options?)`                         | Managed GitHub linking; requires a signed-in user and preserves linking intent.                                                                       |
+| `signInWithCallback(url, optionsOrExpiresInMs?)`           | Completes provider callbacks using the flow cookie, or magic links using encrypted link state. Saves a session and returns the redirect path.         |
+| `signInWithProviderCallback(url, postBody?, expiresInMs?)` | Completes managed GET or form POST callbacks for sign-in/linking. Saves a session and returns the redirect path.                                      |
+| `signInWithProviderToken(provider, credential)`            | Exchanges a credential for Firebase sign-in data; does not save a session cookie.                                                                     |
+| `getUser(checkRevoked?)`                                   | Verifies the current session and returns decoded claims, or `data: null` without a session. Invalid sessions are cleared.                             |
+| `impersonateUser(uid, expiresInMs?)`                       | Starts an authorized user impersonation, preserves the original session, and returns `{ uid, impersonation }`. The caller must enforce access policy. |
+| `stopImpersonating()`                                      | Verifies and restores the preserved original session; returns its decoded claims.                                                                     |
+| `getToken()`                                               | Creates and exchanges a custom token for the current user, returning Firebase login tokens; `data: null` without a session.                           |
+| `linkProvider(credential, providerId)`                     | Links a credential to the current user; does not replace the session cookie. Returns `data: null, error: null` without a session.                     |
+| `unlinkProvider(providerId, expiresInMs?)`                 | Unlinks a provider and replaces the session cookie. Returns `data: null, error: null` without a session.                                              |
+| `signOut()`                                                | Awaits clearing the active session, preserved actor session, and pending OAuth flow; does not revoke Firebase client tokens.                          |
 
 | Property    | Guide                                       |
 | ----------- | ------------------------------------------- |

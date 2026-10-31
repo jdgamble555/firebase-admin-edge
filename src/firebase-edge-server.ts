@@ -21,6 +21,7 @@ import { resolveAuthEmulatorHost } from './auth/auth-emulator.js';
 import type {
     FirebaseConfig,
     ServiceAccount,
+    FirebaseIdTokenPayload,
     FirebaseIdpSignInResponse
 } from './auth/firebase-types.js';
 import { FirebaseEdgeError, ensureError } from './auth/errors.js';
@@ -33,6 +34,18 @@ import {
     parseEmailSignInLink
 } from './auth/email-link.js';
 import { buildEmailActionRequest } from './auth/email-action-request.js';
+import { validateUserUid } from './auth/user-request.js';
+
+export type Impersonation = {
+    actorUid: string;
+    /** Absolute expiration time in milliseconds since the Unix epoch. */
+    expiresAt: number;
+};
+
+export type FirebaseEdgeUser = FirebaseIdTokenPayload & {
+    impersonation?: Impersonation;
+    [claim: string]: unknown;
+};
 
 export type EmailLinkOptions = {
     includeEmailInLink?: boolean;
@@ -115,6 +128,8 @@ export function createFirebaseEdgeServer({
 }) {
     // Cookies
     const _cookieName = cookieName || '__session';
+    const actorCookieName = _cookieName + '_actor';
+    const oauthCookieName = _cookieName + '_oauth';
 
     const { getSession, saveSession } = cookies;
 
@@ -263,7 +278,7 @@ export function createFirebaseEdgeServer({
             newPassword
         );
         if (error) return { error, data };
-        signOut();
+        await signOut();
         return { error, data };
     }
 
@@ -271,6 +286,14 @@ export function createFirebaseEdgeServer({
     async function verifyBeforeUpdateEmail(newEmail: string, locale?: string) {
         const { error: userError, data: userData } = await getUser(true);
         if (userError) return { data: null, error: userError };
+        if (userData?.impersonation) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_IMPERSONATION_NOT_ALLOWED
+                )
+            };
+        }
         if (!userData)
             return {
                 data: null,
@@ -312,20 +335,20 @@ export function createFirebaseEdgeServer({
     async function applyActionCode(oobCode: string) {
         const { error, data } = await auth.applyActionCode(oobCode);
         if (error) return { error, data };
-        signOut();
+        await signOut();
         return { error, data };
     }
 
-    /** Persist a successful Firebase login as the configured session cookie. */
-    async function saveSignInSession(
+    /** Convert a successful Firebase login into a session before changing cookies. */
+    async function createSignInSession(
         signInData: { idToken?: string },
-        next: string,
         expiresIn_ms: number
     ) {
         const { idToken } = signInData;
 
         if (!idToken) {
             return {
+                data: null,
                 error: new FirebaseEdgeError(
                     FirebaseEdgeServerErrorInfo.EDGE_NO_ID_TOKEN
                 )
@@ -339,18 +362,39 @@ export function createFirebaseEdgeServer({
 
         if (sessionError) {
             return {
+                data: null,
                 error: sessionError
             };
         }
 
         if (!sessionCookie) {
             return {
+                data: null,
                 error: new FirebaseEdgeError(
                     FirebaseEdgeServerErrorInfo.EDGE_NO_SESSION_COOKIE
                 )
             };
         }
 
+        return { data: sessionCookie, error: null };
+    }
+
+    /** Persist a new login and discard any previous impersonation or provider flow. */
+    async function saveSignInSession(
+        signInData: { idToken?: string },
+        next: string,
+        expiresIn_ms: number
+    ) {
+        const { error, data: sessionCookie } = await createSignInSession(
+            signInData,
+            expiresIn_ms
+        );
+        if (error) {
+            return { error };
+        }
+
+        await deleteSession(actorCookieName);
+        await deleteSession(oauthCookieName);
         await saveSession(_cookieName, sessionCookie, _cookieOptions);
 
         return {
@@ -473,6 +517,11 @@ export function createFirebaseEdgeServer({
         if (intent === 'link') {
             const { error: userError, data: userData } = await getUser();
             if (userError) throw userError;
+            if (userData?.impersonation) {
+                throw new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_IMPERSONATION_NOT_ALLOWED
+                );
+            }
             if (!userData)
                 throw new FirebaseEdgeError({
                     code: 'auth/user-not-found',
@@ -490,8 +539,12 @@ export function createFirebaseEdgeServer({
                 message:
                     'Firebase returned an incomplete authorization response.'
             });
+        if (intent === 'signin') {
+            await signOut();
+        }
+
         await saveSession(
-            _cookieName + '_oauth',
+            oauthCookieName,
             JSON.stringify({ sessionId: data.sessionId, next, intent }),
             {
                 ..._cookieOptions,
@@ -501,7 +554,6 @@ export function createFirebaseEdgeServer({
                 maxAge: 600
             }
         );
-        if (intent === 'signin') deleteSession();
         return data.authUri;
     }
 
@@ -527,7 +579,7 @@ export function createFirebaseEdgeServer({
         postBody?: string,
         expiresIn_ms = COOKIE_LIFETIME_SECONDS * 1000
     ) {
-        const stored = await getSession(_cookieName + '_oauth');
+        const stored = await getSession(oauthCookieName);
         if (!stored)
             return {
                 error: new FirebaseEdgeError({
@@ -536,10 +588,7 @@ export function createFirebaseEdgeServer({
                         'The provider authorization session is missing or expired.'
                 })
             };
-        await saveSession(_cookieName + '_oauth', '', {
-            ..._cookieOptions,
-            maxAge: 0
-        });
+        await deleteSession(oauthCookieName);
         const flow = parseProviderSession(stored);
         if (!flow)
             return {
@@ -683,22 +732,45 @@ export function createFirebaseEdgeServer({
     /**
      * Clears the session cookie by setting its maxAge to 0.
      */
-    function deleteSession() {
-        saveSession(_cookieName, '', {
+    function deleteSession(name = _cookieName) {
+        return saveSession(name, '', {
             ..._cookieOptions,
             maxAge: 0
         });
     }
 
+    /** Keep browser persistence within both the configured lifetime and signed expiration. */
+    function sessionCookieOptions(expiresAt: number): CookieOptions {
+        const remainingSeconds = Math.max(
+            0,
+            Math.floor((expiresAt - Date.now()) / 1000)
+        );
+        return {
+            ..._cookieOptions,
+            maxAge: Math.min(
+                _cookieOptions.maxAge ?? remainingSeconds,
+                remainingSeconds
+            )
+        };
+    }
+
     /**
-     * Signs out the current user by clearing the session cookie.
+     * Clears the active session, preserved actor session, and pending provider flow.
      * Note: This only removes the server-side session, not Firebase client tokens.
      *
-     * @returns void
+     * @returns Promise resolving after all cookie writes complete
      */
-    function signOut() {
-        deleteSession();
-        return;
+    async function signOut() {
+        const writes = [_cookieName, actorCookieName, oauthCookieName].map(
+            async (name) => {
+                await deleteSession(name);
+            }
+        );
+        const results = await Promise.allSettled(writes);
+        const failure = results.find((result) => result.status === 'rejected');
+        if (failure) {
+            throw failure.reason;
+        }
     }
 
     /**
@@ -721,7 +793,7 @@ export function createFirebaseEdgeServer({
             await adminAuth.verifySessionCookie(sessionCookie, checkRevoked);
 
         if (verifyError) {
-            deleteSession();
+            await deleteSession();
 
             return {
                 data: null,
@@ -730,7 +802,7 @@ export function createFirebaseEdgeServer({
         }
 
         if (!decodedToken) {
-            deleteSession();
+            await deleteSession();
 
             return {
                 data: null,
@@ -738,10 +810,242 @@ export function createFirebaseEdgeServer({
             };
         }
 
+        const user = decodedToken as FirebaseEdgeUser;
+        if (user.impersonation !== undefined) {
+            const impersonation = user.impersonation;
+            if (
+                !impersonation ||
+                typeof impersonation.actorUid !== 'string' ||
+                !impersonation.actorUid ||
+                !Number.isFinite(impersonation.expiresAt) ||
+                impersonation.expiresAt <= Date.now()
+            ) {
+                await deleteSession();
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseEdgeServerErrorInfo.EDGE_IMPERSONATION_SESSION_INVALID
+                    )
+                };
+            }
+
+            const actorCookie = await getSession(actorCookieName);
+            const { error: actorError, data: actor } = actorCookie
+                ? await adminAuth.verifySessionCookie(actorCookie, true)
+                : { error: null, data: null };
+            if (
+                actorError ||
+                !actor ||
+                actor.sub !== impersonation.actorUid ||
+                (actor as FirebaseEdgeUser).impersonation !== undefined
+            ) {
+                await signOut();
+                return {
+                    data: null,
+                    error:
+                        actorError ??
+                        new FirebaseEdgeError(
+                            FirebaseEdgeServerErrorInfo.EDGE_IMPERSONATION_SESSION_INVALID
+                        )
+                };
+            }
+        }
+
         return {
-            data: decodedToken,
+            data: user,
             error: null
         };
+    }
+
+    /** Impersonate an existing user. The caller must authorize this privileged operation. */
+    async function impersonateUser(uid: string, expiresInMs = 15 * 60 * 1000) {
+        const uidError = validateUserUid(uid);
+        if (uidError) {
+            return { data: null, error: uidError };
+        }
+        if (
+            !Number.isFinite(expiresInMs) ||
+            expiresInMs < 300000 ||
+            expiresInMs > 1209600000
+        ) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_IMPERSONATION_DURATION_INVALID
+                )
+            };
+        }
+
+        try {
+            const { error: actorError, data: actor } = await getUser(true);
+            if (actorError) {
+                return { data: null, error: actorError };
+            }
+            if (!actor) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError({
+                        code: 'auth/unauthenticated',
+                        message: 'Sign in before impersonating a user.'
+                    })
+                };
+            }
+            const savedActor = await getSession(actorCookieName);
+            if (actor.impersonation || savedActor) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseEdgeServerErrorInfo.EDGE_IMPERSONATION_ACTIVE
+                    )
+                };
+            }
+            if (actor.sub === uid) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError({
+                        code: 'auth/invalid-argument',
+                        message: 'Choose a different user to impersonate.'
+                    })
+                };
+            }
+
+            const now = Date.now();
+            const expiresAt = Math.min(now + expiresInMs, actor.exp * 1000);
+            const duration = expiresAt - now;
+            if (!Number.isFinite(duration) || duration < 300000) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError({
+                        code: 'auth/requires-recent-login',
+                        message: 'Sign in again before impersonating a user.'
+                    })
+                };
+            }
+
+            const { error: targetError, data: target } =
+                await adminAuth.getUser(uid);
+            if (targetError) {
+                return { data: null, error: targetError };
+            }
+            if (!target || target.disabled) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError({
+                        code: target
+                            ? 'auth/user-disabled'
+                            : 'auth/user-not-found',
+                        message: 'An enabled target user is required.'
+                    })
+                };
+            }
+
+            const impersonation: Impersonation = {
+                actorUid: actor.sub,
+                expiresAt
+            };
+            const { error: tokenError, data: customToken } =
+                await adminAuth.createCustomToken(uid, { impersonation });
+            if (tokenError) {
+                return { data: null, error: tokenError };
+            }
+            if (!customToken) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseEdgeServerErrorInfo.EDGE_NO_CUSTOM_TOKEN_SIGNED
+                    )
+                };
+            }
+
+            const { error: signInError, data: signInData } =
+                await auth.signInWithCustomToken(customToken);
+            if (signInError) {
+                return { data: null, error: signInError };
+            }
+            const { error: sessionError, data: sessionCookie } =
+                await createSignInSession(signInData ?? {}, duration);
+            if (sessionError) {
+                return { data: null, error: sessionError };
+            }
+
+            const actorCookie = await getSession(_cookieName);
+            if (!actorCookie) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseEdgeServerErrorInfo.EDGE_IMPERSONATION_SESSION_INVALID
+                    )
+                };
+            }
+
+            try {
+                await saveSession(
+                    actorCookieName,
+                    actorCookie,
+                    sessionCookieOptions(actor.exp * 1000)
+                );
+                await deleteSession(oauthCookieName);
+                await saveSession(
+                    _cookieName,
+                    sessionCookie,
+                    sessionCookieOptions(expiresAt)
+                );
+            } catch (cause) {
+                await signOut();
+                throw cause;
+            }
+
+            return { data: { uid, impersonation }, error: null };
+        } catch (cause) {
+            return { data: null, error: ensureError(cause) };
+        }
+    }
+
+    /** Restore the original verified session, including after the target session expires. */
+    async function stopImpersonating() {
+        try {
+            const actorCookie = await getSession(actorCookieName);
+            if (!actorCookie) {
+                return {
+                    data: null,
+                    error: new FirebaseEdgeError(
+                        FirebaseEdgeServerErrorInfo.EDGE_NO_IMPERSONATION_SESSION
+                    )
+                };
+            }
+
+            const { error, data: actor } = await adminAuth.verifySessionCookie(
+                actorCookie,
+                true
+            );
+            if (
+                error ||
+                !actor ||
+                (actor as FirebaseEdgeUser).impersonation !== undefined
+            ) {
+                await signOut();
+                return {
+                    data: null,
+                    error:
+                        error ??
+                        new FirebaseEdgeError(
+                            FirebaseEdgeServerErrorInfo.EDGE_IMPERSONATION_SESSION_INVALID
+                        )
+                };
+            }
+
+            await saveSession(
+                _cookieName,
+                actorCookie,
+                sessionCookieOptions(actor.exp * 1000)
+            );
+            await deleteSession(actorCookieName);
+            await deleteSession(oauthCookieName);
+
+            return { data: actor as FirebaseEdgeUser, error: null };
+        } catch (cause) {
+            return { data: null, error: ensureError(cause) };
+        }
     }
 
     /** Begin Google sign-in using the provider configured in Firebase Console. */
@@ -935,6 +1239,15 @@ export function createFirebaseEdgeServer({
             };
         }
 
+        if (verifiedToken.impersonation) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseEdgeServerErrorInfo.EDGE_IMPERSONATION_NOT_ALLOWED
+                )
+            };
+        }
+
         const { data: signJWTData, error: signJWTError } =
             await adminAuth.createCustomToken(verifiedToken.sub);
 
@@ -1032,26 +1345,14 @@ export function createFirebaseEdgeServer({
             };
         }
 
-        const { data: sessionCookie, error: sessionError } =
-            await adminAuth.createSessionCookie(idToken.idToken, {
-                expiresIn: expiresIn_ms
-            });
-
+        const { error: sessionError } = await saveSignInSession(
+            idToken,
+            '',
+            expiresIn_ms
+        );
         if (sessionError) {
-            return {
-                error: sessionError
-            };
+            return { error: sessionError };
         }
-
-        if (!sessionCookie) {
-            return {
-                error: new FirebaseEdgeError(
-                    FirebaseEdgeServerErrorInfo.EDGE_NO_SESSION_COOKIE
-                )
-            };
-        }
-
-        await saveSession(_cookieName, sessionCookie, _cookieOptions);
 
         return {
             data: unlinkData,
@@ -1138,6 +1439,8 @@ export function createFirebaseEdgeServer({
         applyActionCode,
         signOut,
         getUser,
+        impersonateUser,
+        stopImpersonating,
         getProviderLoginURL,
         getProviderLinkURL,
         signInWithProviderCallback,

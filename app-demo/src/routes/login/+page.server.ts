@@ -51,7 +51,7 @@ export const actions = {
 	},
 
 	logout: async ({ locals: { fbServer } }) => {
-		fbServer.signOut();
+		await fbServer.signOut();
 
 		redirect(302, '/');
 	}

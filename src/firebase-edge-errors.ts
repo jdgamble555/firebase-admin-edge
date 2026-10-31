@@ -71,6 +71,28 @@ export const FirebaseEdgeServerErrorInfo = {
     },
 
     // Session Management Errors
+    EDGE_IMPERSONATION_ACTIVE: {
+        message: 'Stop the current impersonation before starting another.',
+        code: 'edge/impersonation-active'
+    },
+    EDGE_IMPERSONATION_NOT_ALLOWED: {
+        message:
+            'Token generation and account changes are unavailable during impersonation.',
+        code: 'edge/impersonation-not-allowed'
+    },
+    EDGE_IMPERSONATION_DURATION_INVALID: {
+        message:
+            'Impersonation must last between five minutes and fourteen days.',
+        code: 'edge/impersonation-duration-invalid'
+    },
+    EDGE_NO_IMPERSONATION_SESSION: {
+        message: 'There is no preserved session to restore.',
+        code: 'edge/no-impersonation-session'
+    },
+    EDGE_IMPERSONATION_SESSION_INVALID: {
+        message: 'The impersonation session is invalid or expired.',
+        code: 'edge/impersonation-session-invalid'
+    },
     EDGE_SESSION_EXPIRED: {
         message: 'Edge server session has expired.',
         code: 'edge/session-expired'

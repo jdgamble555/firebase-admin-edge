@@ -1,7 +1,16 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import {
+    describe,
+    it,
+    expect,
+    vi,
+    beforeEach,
+    afterEach,
+    type Mock
+} from 'vitest';
 import {
     createFirebaseEdgeServer,
-    OFFICIAL_FIREBASE_OAUTH_PROVIDERS
+    OFFICIAL_FIREBASE_OAUTH_PROVIDERS,
+    type FirebaseEdgeUser
 } from './firebase-edge-server.js';
 import type { ServiceAccount, FirebaseConfig } from './auth/firebase-types.js';
 import { FirebaseEdgeError } from './auth/errors.js';
@@ -1378,7 +1387,7 @@ describe('createFirebaseEdgeServer', () => {
             expect(server).toHaveProperty('getToken');
         });
 
-        it('uses custom cookie name when provided', () => {
+        it('uses custom cookie name when provided', async () => {
             const customServer = createFirebaseEdgeServer({
                 serviceAccount: mockServiceAccount,
                 firebaseConfig: mockFirebaseConfig,
@@ -1390,7 +1399,7 @@ describe('createFirebaseEdgeServer', () => {
                 redirectUri: 'http://localhost'
             });
 
-            customServer.signOut();
+            await customServer.signOut();
 
             expect(mockSaveSession).toHaveBeenCalledWith(
                 'custom-session',
@@ -1399,8 +1408,8 @@ describe('createFirebaseEdgeServer', () => {
             );
         });
 
-        it('uses default session name "__session"', () => {
-            server.signOut();
+        it('uses default session name "__session"', async () => {
+            await server.signOut();
 
             expect(mockSaveSession).toHaveBeenCalledWith(
                 '__session',
@@ -1559,8 +1568,8 @@ describe('createFirebaseEdgeServer', () => {
     });
 
     describe('signOut', () => {
-        it('clears session cookie with proper options', () => {
-            server.signOut();
+        it('clears session cookie with proper options', async () => {
+            await server.signOut();
 
             expect(mockSaveSession).toHaveBeenCalledWith('__session', '', {
                 httpOnly: true,
@@ -1596,6 +1605,679 @@ describe('createFirebaseEdgeServer', () => {
                 data: null,
                 error: null
             });
+        });
+    });
+
+    describe('impersonation', () => {
+        const now = Date.parse('2026-10-31T12:00:00Z');
+        let cookieJar: Map<string, string>;
+        let actor: FirebaseEdgeUser;
+        let target: FirebaseEdgeUser;
+
+        beforeEach(() => {
+            vi.spyOn(Date, 'now').mockReturnValue(now);
+            actor = {
+                sub: 'admin',
+                user_id: 'admin',
+                iss: 'https://session.firebase.google.com/test-project',
+                aud: 'test-project',
+                iat: now / 1000,
+                auth_time: now / 1000,
+                exp: now / 1000 + 3600,
+                firebase: { identities: {}, sign_in_provider: 'google.com' },
+                admin: true
+            };
+            target = {
+                ...actor,
+                sub: 'target',
+                user_id: 'target',
+                admin: false,
+                impersonation: { actorUid: 'admin', expiresAt: now + 900000 }
+            };
+            cookieJar = new Map([['__session', 'actor-session']]);
+            mockGetSession.mockImplementation((name: string) =>
+                cookieJar.get(name)
+            );
+            mockSaveSession.mockImplementation(async (name, value, options) => {
+                if (options.maxAge === 0) {
+                    cookieJar.delete(name);
+                    return;
+                }
+                cookieJar.set(name, value);
+            });
+            vi.mocked(server.adminAuth.verifySessionCookie).mockImplementation(
+                async (cookie) => ({
+                    data: cookie === 'actor-session' ? actor : target,
+                    error: null
+                })
+            );
+            vi.mocked(server.adminAuth.getUser).mockResolvedValue({
+                data: { localId: 'target', disabled: false },
+                error: null
+            });
+            vi.mocked(server.adminAuth.createCustomToken).mockResolvedValue({
+                data: 'target-custom-token',
+                error: null
+            });
+            vi.mocked(server.auth.signInWithCustomToken).mockResolvedValue({
+                data: {
+                    idToken: 'target-id-token',
+                    refreshToken: 'private-refresh-token'
+                },
+                error: null
+            });
+            vi.mocked(server.adminAuth.createSessionCookie).mockResolvedValue({
+                data: 'target-session',
+                error: null
+            });
+        });
+
+        afterEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        it('switches sessions with signed actor context and restores the original session', async () => {
+            cookieJar.set('__session_oauth', 'pending-link');
+            const started = await server.impersonateUser('target');
+
+            expect(started).toEqual({
+                data: { uid: 'target', impersonation: target.impersonation },
+                error: null
+            });
+            expect(JSON.stringify(started)).not.toContain(
+                'private-refresh-token'
+            );
+            expect(server.adminAuth.verifySessionCookie).toHaveBeenCalledWith(
+                'actor-session',
+                true
+            );
+            expect(server.adminAuth.getUser).toHaveBeenCalledWith('target');
+            expect(server.adminAuth.createCustomToken).toHaveBeenCalledWith(
+                'target',
+                {
+                    impersonation: target.impersonation
+                }
+            );
+            expect(server.auth.signInWithCustomToken).toHaveBeenCalledWith(
+                'target-custom-token'
+            );
+            expect(server.adminAuth.createSessionCookie).toHaveBeenCalledWith(
+                'target-id-token',
+                {
+                    expiresIn: 900000
+                }
+            );
+            expect(cookieJar).toEqual(
+                new Map([
+                    ['__session', 'target-session'],
+                    ['__session_actor', 'actor-session']
+                ])
+            );
+            expect(mockSaveSession).toHaveBeenCalledWith(
+                '__session',
+                'target-session',
+                {
+                    httpOnly: true,
+                    secure: true,
+                    sameSite: 'lax',
+                    path: '/',
+                    maxAge: 900
+                }
+            );
+
+            const current = await server.getUser();
+            expect(current).toEqual({ data: target, error: null });
+            expect(
+                server.adminAuth.verifySessionCookie
+            ).toHaveBeenLastCalledWith('actor-session', true);
+
+            const restored = await server.stopImpersonating();
+            expect(restored).toEqual({ data: actor, error: null });
+            expect(cookieJar).toEqual(
+                new Map([['__session', 'actor-session']])
+            );
+            expect(mockSaveSession).toHaveBeenCalledWith(
+                '__session',
+                'actor-session',
+                expect.objectContaining({ maxAge: 3600 })
+            );
+            expect(server.adminAuth.setCustomUserClaims).not.toHaveBeenCalled();
+        });
+
+        it('uses custom cookie names, inherited options, and a requested lifetime', async () => {
+            const configured = createFirebaseEdgeServer({
+                serviceAccount: mockServiceAccount,
+                firebaseConfig: mockFirebaseConfig,
+                cookies: {
+                    getSession: mockGetSession,
+                    saveSession: mockSaveSession
+                },
+                cookieName: 'app-session',
+                cookieOptions: {
+                    path: '/app',
+                    domain: 'example.com',
+                    secure: false,
+                    sameSite: 'strict',
+                    maxAge: 60
+                },
+                redirectUri: 'http://localhost',
+                tenantId: 'tenant'
+            });
+            cookieJar.clear();
+            cookieJar.set('app-session', 'actor-session');
+            vi.mocked(
+                configured.adminAuth.verifySessionCookie
+            ).mockResolvedValue({ data: actor, error: null });
+            vi.mocked(configured.adminAuth.getUser).mockResolvedValue({
+                data: { localId: 'target' },
+                error: null
+            });
+            vi.mocked(configured.adminAuth.createCustomToken).mockResolvedValue(
+                { data: 'custom', error: null }
+            );
+            vi.mocked(configured.auth.signInWithCustomToken).mockResolvedValue({
+                data: { idToken: 'id' },
+                error: null
+            });
+            vi.mocked(
+                configured.adminAuth.createSessionCookie
+            ).mockResolvedValue({ data: 'target-session', error: null });
+
+            const { error } = await configured.impersonateUser(
+                'target',
+                300000
+            );
+            expect(error).toBeNull();
+            expect(cookieJar.get('app-session_actor')).toBe('actor-session');
+            expect(
+                configured.adminAuth.createSessionCookie
+            ).toHaveBeenCalledWith('id', { expiresIn: 300000 });
+            expect(mockSaveSession).toHaveBeenCalledWith(
+                'app-session',
+                'target-session',
+                expect.objectContaining({
+                    path: '/app',
+                    domain: 'example.com',
+                    secure: false,
+                    sameSite: 'strict',
+                    maxAge: 60
+                })
+            );
+            expect(mockSaveSession).toHaveBeenCalledWith(
+                'app-session_actor',
+                'actor-session',
+                expect.objectContaining({ maxAge: 60 })
+            );
+
+            const restored = await configured.stopImpersonating();
+            expect(restored.error).toBeNull();
+            expect(mockSaveSession).toHaveBeenCalledWith(
+                'app-session',
+                'actor-session',
+                expect.objectContaining({ maxAge: 60 })
+            );
+
+            await configured.signOut();
+            expect(cookieJar.size).toBe(0);
+        });
+
+        it('caps impersonation at the remaining original session lifetime', async () => {
+            actor.exp = now / 1000 + 600;
+            const { error, data } = await server.impersonateUser('target');
+            expect(error).toBeNull();
+            expect(data?.impersonation.expiresAt).toBe(actor.exp * 1000);
+            expect(server.adminAuth.createSessionCookie).toHaveBeenCalledWith(
+                'target-id-token',
+                { expiresIn: 600000 }
+            );
+        });
+
+        it.each(['', 'x'.repeat(129), null])(
+            'rejects invalid uid %s before auth operations',
+            async (uid) => {
+                const { error } = await server.impersonateUser(uid as string);
+                expect(error).toBeTruthy();
+                expect(
+                    server.adminAuth.verifySessionCookie
+                ).not.toHaveBeenCalled();
+                expect(server.adminAuth.getUser).not.toHaveBeenCalled();
+                expect(mockSaveSession).not.toHaveBeenCalled();
+            }
+        );
+
+        it.each([0, 299999, 1209600001, NaN, Infinity])(
+            'rejects invalid duration %s',
+            async (duration) => {
+                const { error } = await server.impersonateUser(
+                    'target',
+                    duration
+                );
+                expect(error).toMatchObject({
+                    code: 'edge/impersonation-duration-invalid'
+                });
+                expect(mockSaveSession).not.toHaveBeenCalled();
+                expect(
+                    server.adminAuth.createCustomToken
+                ).not.toHaveBeenCalled();
+            }
+        );
+
+        it.each(['missing', 'self', 'nested', 'saved-actor', 'expiring'])(
+            'rejects an unsuitable actor: %s',
+            async (state) => {
+                if (state === 'missing') cookieJar.clear();
+                if (state === 'nested')
+                    actor.impersonation = {
+                        actorUid: 'other',
+                        expiresAt: now + 900000
+                    };
+                if (state === 'saved-actor')
+                    cookieJar.set('__session_actor', 'actor-session');
+                if (state === 'expiring') actor.exp = now / 1000 + 299;
+
+                const { error } = await server.impersonateUser(
+                    state === 'self' ? 'admin' : 'target'
+                );
+                expect(error).toBeTruthy();
+                expect(
+                    server.adminAuth.createCustomToken
+                ).not.toHaveBeenCalled();
+                expect(cookieJar.get('__session')).not.toBe('target-session');
+            }
+        );
+
+        it.each(['missing', 'disabled'])(
+            'does not create a token or change sessions for a %s target',
+            async (state) => {
+                vi.mocked(server.adminAuth.getUser).mockResolvedValue({
+                    data:
+                        state === 'missing'
+                            ? null
+                            : { localId: 'target', disabled: true },
+                    error: null
+                } as never);
+                const { error } = await server.impersonateUser('target');
+                expect(error).toMatchObject({
+                    code:
+                        state === 'missing'
+                            ? 'auth/user-not-found'
+                            : 'auth/user-disabled'
+                });
+                expect(
+                    server.adminAuth.createCustomToken
+                ).not.toHaveBeenCalled();
+                expect(mockSaveSession).not.toHaveBeenCalled();
+            }
+        );
+
+        it.each(['actor', 'lookup', 'custom-token', 'exchange', 'session'])(
+            'propagates %s failures without installing an impersonated session',
+            async (stage) => {
+                const error = new FirebaseEdgeError({
+                    code: 'auth/test-failure',
+                    message: 'Failed'
+                });
+                const failure = { data: null, error };
+                if (stage === 'actor')
+                    vi.mocked(
+                        server.adminAuth.verifySessionCookie
+                    ).mockResolvedValue(failure);
+                if (stage === 'lookup')
+                    vi.mocked(server.adminAuth.getUser).mockResolvedValue(
+                        failure
+                    );
+                if (stage === 'custom-token')
+                    vi.mocked(
+                        server.adminAuth.createCustomToken
+                    ).mockResolvedValue(failure);
+                if (stage === 'exchange')
+                    vi.mocked(
+                        server.auth.signInWithCustomToken
+                    ).mockResolvedValue(failure);
+                if (stage === 'session')
+                    vi.mocked(
+                        server.adminAuth.createSessionCookie
+                    ).mockResolvedValue(failure);
+
+                const result = await server.impersonateUser('target');
+                expect(result).toEqual(failure);
+                expect(cookieJar.get('__session')).not.toBe('target-session');
+                expect(cookieJar.has('__session_actor')).toBe(false);
+                if (stage !== 'actor')
+                    expect(mockSaveSession).not.toHaveBeenCalled();
+            }
+        );
+
+        it.each(['custom-token', 'sign-in', 'id-token', 'session'])(
+            'handles an incomplete %s response without changing cookies',
+            async (stage) => {
+                if (stage === 'custom-token')
+                    vi.mocked(
+                        server.adminAuth.createCustomToken
+                    ).mockResolvedValue({ data: null, error: null } as never);
+                if (stage === 'sign-in')
+                    vi.mocked(
+                        server.auth.signInWithCustomToken
+                    ).mockResolvedValue({ data: null, error: null } as never);
+                if (stage === 'id-token')
+                    vi.mocked(
+                        server.auth.signInWithCustomToken
+                    ).mockResolvedValue({ data: {}, error: null });
+                if (stage === 'session')
+                    vi.mocked(
+                        server.adminAuth.createSessionCookie
+                    ).mockResolvedValue({ data: null, error: null } as never);
+
+                const { error } = await server.impersonateUser('target');
+                expect(error).toBeTruthy();
+                expect(mockSaveSession).not.toHaveBeenCalled();
+            }
+        );
+
+        it('clears all credentials if an adapter fails partway through switching sessions', async () => {
+            mockSaveSession.mockImplementation(async (name, value, options) => {
+                if (value === 'target-session')
+                    throw new Error('Cookie write failed');
+                if (options.maxAge === 0) {
+                    cookieJar.delete(name);
+                    return;
+                }
+                cookieJar.set(name, value);
+            });
+            const { error } = await server.impersonateUser('target');
+            expect(error?.message).toBe('Cookie write failed');
+            expect(cookieJar.size).toBe(0);
+        });
+
+        it('returns an adapter read failure as an error', async () => {
+            mockGetSession.mockRejectedValueOnce(
+                new Error('Cookie read failed')
+            );
+            const { error } = await server.impersonateUser('target');
+            expect(error?.message).toBe('Cookie read failed');
+            expect(mockSaveSession).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            'getToken',
+            'linkProvider',
+            'unlinkProvider',
+            'verifyBeforeUpdateEmail'
+        ] as const)('blocks %s during impersonation', async (operation) => {
+            await server.impersonateUser('target');
+            vi.mocked(server.adminAuth.createCustomToken).mockClear();
+            const result =
+                operation === 'getToken'
+                    ? await server.getToken()
+                    : operation === 'linkProvider'
+                      ? await server.linkProvider('credential', 'google.com')
+                      : operation === 'unlinkProvider'
+                        ? await server.unlinkProvider('google.com')
+                        : await server.verifyBeforeUpdateEmail(
+                              'new@example.com'
+                          );
+
+            expect(result.error).toMatchObject({
+                code: 'edge/impersonation-not-allowed'
+            });
+            expect(server.adminAuth.createCustomToken).not.toHaveBeenCalled();
+            expect(server.auth.linkWithCredential).not.toHaveBeenCalled();
+            expect(server.auth.unlink).not.toHaveBeenCalled();
+            expect(server.auth.verifyBeforeUpdateEmail).not.toHaveBeenCalled();
+        });
+
+        it('blocks provider link initiation and callbacks before exchanging credentials', async () => {
+            await server.impersonateUser('target');
+            await expect(
+                server.getProviderLinkURL('google', '/')
+            ).rejects.toMatchObject({ code: 'edge/impersonation-not-allowed' });
+            expect(
+                server.auth.createProviderAuthorization
+            ).not.toHaveBeenCalled();
+
+            cookieJar.set(
+                '__session_oauth',
+                JSON.stringify({ sessionId: 'flow', next: '/', intent: 'link' })
+            );
+            const { error } = await server.signInWithProviderCallback(
+                new URL('https://app/callback')
+            );
+            expect(error).toMatchObject({
+                code: 'edge/impersonation-not-allowed'
+            });
+            expect(
+                server.auth.signInWithProviderCallback
+            ).not.toHaveBeenCalled();
+        });
+
+        it('rejects another impersonation without replacing the preserved actor', async () => {
+            await server.impersonateUser('target');
+            const { error } = await server.impersonateUser('third');
+            expect(error).toMatchObject({ code: 'edge/impersonation-active' });
+            expect(cookieJar.get('__session_actor')).toBe('actor-session');
+            expect(server.adminAuth.createCustomToken).toHaveBeenCalledTimes(1);
+        });
+
+        it.each([
+            null,
+            {},
+            { actorUid: '', expiresAt: now + 900000 },
+            { actorUid: 'admin', expiresAt: 'tomorrow' },
+            { actorUid: 'admin', expiresAt: now }
+        ])(
+            'rejects malformed or expired signed impersonation claims: %j',
+            async (claim) => {
+                target.impersonation = claim as never;
+                cookieJar.set('__session', 'target-session');
+                cookieJar.set('__session_actor', 'actor-session');
+                const { error, data } = await server.getUser();
+                expect(data).toBeNull();
+                expect(error).toMatchObject({
+                    code: 'edge/impersonation-session-invalid'
+                });
+                expect(cookieJar.has('__session')).toBe(false);
+                expect(cookieJar.get('__session_actor')).toBe('actor-session');
+
+                const restored = await server.stopImpersonating();
+                expect(restored.error).toBeNull();
+                expect(cookieJar.get('__session')).toBe('actor-session');
+            }
+        );
+
+        it.each(['missing', 'mismatch', 'nested', 'revoked'])(
+            'rejects impersonated sessions when the actor is %s',
+            async (state) => {
+                await server.impersonateUser('target');
+                if (state === 'missing') cookieJar.delete('__session_actor');
+                if (state === 'mismatch') actor.sub = 'someone-else';
+                if (state === 'nested')
+                    actor.impersonation = {
+                        actorUid: 'other',
+                        expiresAt: now + 900000
+                    };
+                if (state === 'revoked') {
+                    vi.mocked(server.adminAuth.verifySessionCookie)
+                        .mockResolvedValueOnce({ data: target, error: null })
+                        .mockResolvedValueOnce({
+                            data: null,
+                            error: new FirebaseEdgeError({
+                                code: 'auth/session-cookie-revoked',
+                                message: 'Revoked'
+                            })
+                        });
+                }
+
+                const { error, data } = await server.getUser();
+                expect(error).toBeTruthy();
+                expect(data).toBeNull();
+                expect(cookieJar.size).toBe(0);
+            }
+        );
+
+        it('can restore the actor after Firebase rejects an expired target session', async () => {
+            await server.impersonateUser('target');
+            vi.mocked(
+                server.adminAuth.verifySessionCookie
+            ).mockResolvedValueOnce({
+                data: null,
+                error: new FirebaseEdgeError({
+                    code: 'auth/session-cookie-expired',
+                    message: 'Expired'
+                })
+            });
+            const current = await server.getUser();
+            expect(current.error).toBeTruthy();
+            expect(cookieJar.has('__session')).toBe(false);
+            const restored = await server.stopImpersonating();
+            expect(restored).toEqual({ data: actor, error: null });
+            expect(cookieJar).toEqual(
+                new Map([['__session', 'actor-session']])
+            );
+        });
+
+        it('returns an error without changing a normal session when there is nothing to restore', async () => {
+            const { error } = await server.stopImpersonating();
+            expect(error).toMatchObject({
+                code: 'edge/no-impersonation-session'
+            });
+            expect(mockSaveSession).not.toHaveBeenCalled();
+        });
+
+        it.each(['revoked', 'missing-data', 'nested'])(
+            'clears both sessions instead of restoring a %s actor',
+            async (state) => {
+                cookieJar.set('__session_actor', 'actor-session');
+                if (state === 'revoked')
+                    vi.mocked(
+                        server.adminAuth.verifySessionCookie
+                    ).mockResolvedValue({
+                        data: null,
+                        error: new FirebaseEdgeError({
+                            code: 'auth/session-cookie-revoked',
+                            message: 'Revoked'
+                        })
+                    });
+                if (state === 'missing-data')
+                    vi.mocked(
+                        server.adminAuth.verifySessionCookie
+                    ).mockResolvedValue({ data: null, error: null } as never);
+                if (state === 'nested')
+                    actor.impersonation = {
+                        actorUid: 'other',
+                        expiresAt: now + 900000
+                    };
+
+                const { error } = await server.stopImpersonating();
+                expect(error).toBeTruthy();
+                expect(cookieJar.size).toBe(0);
+            }
+        );
+
+        it('reports a failed restoration write and retains the backup for retry', async () => {
+            await server.impersonateUser('target');
+            mockSaveSession.mockRejectedValueOnce(
+                new Error('Cookie write failed')
+            );
+            const { error } = await server.stopImpersonating();
+            expect(error?.message).toBe('Cookie write failed');
+            expect(cookieJar.get('__session_actor')).toBe('actor-session');
+        });
+
+        it.each([
+            'signOut',
+            'confirmPasswordReset',
+            'applyActionCode'
+        ] as const)(
+            '%s awaits clearing the actor, active session, and pending flow',
+            async (operation) => {
+                await server.impersonateUser('target');
+                cookieJar.set('__session_oauth', 'pending-flow');
+                vi.mocked(server.auth.confirmPasswordReset).mockResolvedValue({
+                    data: { email: 'user@example.com' },
+                    error: null
+                });
+                vi.mocked(server.auth.applyActionCode).mockResolvedValue({
+                    data: {},
+                    error: null
+                });
+                mockSaveSession.mockImplementation(async (name) => {
+                    await Promise.resolve();
+                    cookieJar.delete(name);
+                });
+
+                if (operation === 'signOut') await server.signOut();
+                if (operation === 'confirmPasswordReset')
+                    await server.confirmPasswordReset('code', 'password');
+                if (operation === 'applyActionCode')
+                    await server.applyActionCode('code');
+                expect(cookieJar.size).toBe(0);
+                const restored = await server.stopImpersonating();
+                expect(restored.error).toMatchObject({
+                    code: 'edge/no-impersonation-session'
+                });
+            }
+        );
+
+        it('clears the preserved actor when a fresh provider login starts', async () => {
+            await server.impersonateUser('target');
+            vi.mocked(
+                server.auth.createProviderAuthorization
+            ).mockResolvedValue({
+                data: {
+                    authUri: 'https://provider/authorize',
+                    sessionId: 'new-flow'
+                },
+                error: null
+            });
+            const url = await server.getProviderLoginURL('google', '/');
+            expect(url).toBe('https://provider/authorize');
+            expect(cookieJar.has('__session')).toBe(false);
+            expect(cookieJar.has('__session_actor')).toBe(false);
+            expect(cookieJar.get('__session_oauth')).toContain('new-flow');
+        });
+
+        it('attempts every sign-out deletion even when an adapter throws synchronously', async () => {
+            await server.impersonateUser('target');
+            cookieJar.set('__session_oauth', 'pending-flow');
+            mockSaveSession.mockImplementation((name) => {
+                if (name === '__session')
+                    throw new Error('Cookie deletion failed');
+                return Promise.resolve().then(() => {
+                    cookieJar.delete(name);
+                });
+            });
+
+            await expect(server.signOut()).rejects.toThrow(
+                'Cookie deletion failed'
+            );
+            expect(cookieJar.has('__session_actor')).toBe(false);
+            expect(cookieJar.has('__session_oauth')).toBe(false);
+        });
+
+        it('discards impersonation when a new login callback saves a session', async () => {
+            await server.impersonateUser('target');
+            cookieJar.set(
+                '__session_oauth',
+                JSON.stringify({
+                    sessionId: 'flow',
+                    next: '/',
+                    intent: 'signin'
+                })
+            );
+            vi.mocked(server.auth.signInWithProviderCallback).mockResolvedValue(
+                { data: { idToken: 'new-id' }, error: null }
+            );
+            vi.mocked(server.adminAuth.createSessionCookie).mockResolvedValue({
+                data: 'new-login-session',
+                error: null
+            });
+            const { error } = await server.signInWithCallback(
+                new URL('https://app/callback')
+            );
+            expect(error).toBeNull();
+            expect(cookieJar).toEqual(
+                new Map([['__session', 'new-login-session']])
+            );
         });
     });
 

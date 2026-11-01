@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 3.3.0
+
+### Minor Changes
+
+- cc24db2: Add Refresh Session
+
 ## 3.2.0
 
 ### Minor Changes

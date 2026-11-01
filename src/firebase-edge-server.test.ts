@@ -1567,6 +1567,284 @@ describe('createFirebaseEdgeServer', () => {
         });
     });
 
+    describe('refreshSession', () => {
+        beforeEach(() => {
+            vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
+            mockGetSession.mockResolvedValue('old-session');
+            vi.mocked(server.adminAuth.verifySessionCookie).mockResolvedValue({
+                data: { sub: 'user', role: 'old' } as never,
+                error: null
+            });
+            vi.mocked(server.adminAuth.createCustomToken).mockResolvedValue({
+                data: 'custom-token',
+                error: null
+            });
+            vi.mocked(server.auth.signInWithCustomToken).mockResolvedValue({
+                data: { idToken: 'updated-claims-id-token' },
+                error: null
+            });
+            vi.mocked(server.adminAuth.createSessionCookie).mockResolvedValue({
+                data: 'updated-session',
+                error: null
+            });
+        });
+
+        afterEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        it('checks revocation and replaces the cookie using fresh claims, without copying old claims', async () => {
+            const { error, data } = await server.refreshSession();
+
+            expect({ error, data }).toEqual({
+                error: null,
+                data: { refreshed: true }
+            });
+            expect(server.adminAuth.verifySessionCookie).toHaveBeenCalledWith(
+                'old-session',
+                true
+            );
+            expect(server.adminAuth.createCustomToken).toHaveBeenCalledWith(
+                'user'
+            );
+            expect(server.auth.signInWithCustomToken).toHaveBeenCalledWith(
+                'custom-token'
+            );
+            expect(server.adminAuth.createSessionCookie).toHaveBeenCalledWith(
+                'updated-claims-id-token',
+                { expiresIn: 432000000 }
+            );
+            expect(mockSaveSession).toHaveBeenCalledExactlyOnceWith(
+                '__session',
+                'updated-session',
+                {
+                    httpOnly: true,
+                    secure: true,
+                    sameSite: 'lax',
+                    path: '/',
+                    maxAge: 432000
+                }
+            );
+        });
+
+        it.each([300000, 1209600000])(
+            'accepts a duration of %i milliseconds and respects configured cookie persistence',
+            async (duration) => {
+                const configured = createFirebaseEdgeServer({
+                    serviceAccount: mockServiceAccount,
+                    firebaseConfig: mockFirebaseConfig,
+                    cookies: {
+                        getSession: mockGetSession,
+                        saveSession: mockSaveSession
+                    },
+                    redirectUri: 'http://localhost',
+                    cookieName: 'custom-session',
+                    cookieOptions: { path: '/app', maxAge: 600 }
+                });
+                vi.mocked(
+                    configured.adminAuth.verifySessionCookie
+                ).mockResolvedValue({
+                    data: { sub: 'user' } as never,
+                    error: null
+                });
+                vi.mocked(
+                    configured.adminAuth.createCustomToken
+                ).mockResolvedValue({ data: 'custom', error: null });
+                vi.mocked(
+                    configured.auth.signInWithCustomToken
+                ).mockResolvedValue({ data: { idToken: 'id' }, error: null });
+                vi.mocked(
+                    configured.adminAuth.createSessionCookie
+                ).mockResolvedValue({ data: 'new', error: null });
+
+                const { error } = await configured.refreshSession(duration);
+
+                expect(error).toBeNull();
+                expect(
+                    configured.adminAuth.createSessionCookie
+                ).toHaveBeenCalledWith('id', { expiresIn: duration });
+                expect(mockSaveSession).toHaveBeenCalledWith(
+                    'custom-session',
+                    'new',
+                    expect.objectContaining({
+                        path: '/app',
+                        maxAge: Math.min(600, duration / 1000)
+                    })
+                );
+            }
+        );
+
+        it.each([0, 299999, 1209600001, NaN, Infinity])(
+            'rejects invalid duration %s before reading the session',
+            async (duration) => {
+                const { error, data } = await server.refreshSession(duration);
+
+                expect(data).toBeNull();
+                expect(error).toBeInstanceOf(FirebaseEdgeError);
+                expect(mockGetSession).not.toHaveBeenCalled();
+                expect(mockSaveSession).not.toHaveBeenCalled();
+            }
+        );
+
+        it('returns null without a session', async () => {
+            mockGetSession.mockResolvedValue(undefined);
+
+            const { error, data } = await server.refreshSession();
+
+            expect({ error, data }).toEqual({ error: null, data: null });
+            expect(server.adminAuth.createCustomToken).not.toHaveBeenCalled();
+            expect(mockSaveSession).not.toHaveBeenCalled();
+        });
+
+        it.each(['expired', 'revoked', 'disabled'])(
+            'clears a rejected %s session without issuing tokens',
+            async (reason) => {
+                const failure = new Error(reason);
+                vi.mocked(
+                    server.adminAuth.verifySessionCookie
+                ).mockResolvedValue({ data: null, error: failure as never });
+
+                const { error, data } = await server.refreshSession();
+
+                expect(error).toBe(failure);
+                expect(data).toBeNull();
+                expect(
+                    server.adminAuth.createCustomToken
+                ).not.toHaveBeenCalled();
+                expect(mockSaveSession).toHaveBeenCalledExactlyOnceWith(
+                    '__session',
+                    '',
+                    expect.objectContaining({ maxAge: 0 })
+                );
+            }
+        );
+
+        it('rejects an active impersonation without creating renewable credentials', async () => {
+            vi.mocked(server.adminAuth.verifySessionCookie)
+                .mockResolvedValueOnce({
+                    data: {
+                        sub: 'target',
+                        impersonation: {
+                            actorUid: 'actor',
+                            expiresAt: Date.now() + 600000
+                        }
+                    } as never,
+                    error: null
+                })
+                .mockResolvedValueOnce({
+                    data: { sub: 'actor' } as never,
+                    error: null
+                });
+
+            const { error } = await server.refreshSession();
+
+            expect(error).toMatchObject({
+                code: 'edge/impersonation-not-allowed'
+            });
+            expect(server.adminAuth.createCustomToken).not.toHaveBeenCalled();
+            expect(mockSaveSession).not.toHaveBeenCalled();
+        });
+
+        it.each(['signing', 'exchange', 'cookie'])(
+            'preserves the existing cookie after a %s failure',
+            async (stage) => {
+                const failure = new Error(stage);
+                const method =
+                    stage === 'signing'
+                        ? server.adminAuth.createCustomToken
+                        : stage === 'exchange'
+                          ? server.auth.signInWithCustomToken
+                          : server.adminAuth.createSessionCookie;
+                vi.mocked(method).mockResolvedValueOnce({
+                    data: null,
+                    error: failure as never
+                });
+
+                const { error, data } = await server.refreshSession();
+
+                expect(error).toBe(failure);
+                expect(data).toBeNull();
+                expect(mockSaveSession).not.toHaveBeenCalled();
+            }
+        );
+
+        it.each(['custom-token', 'id-token', 'session-cookie'])(
+            'does not save a cookie when the %s is missing',
+            async (missing) => {
+                if (missing === 'custom-token') {
+                    vi.mocked(
+                        server.adminAuth.createCustomToken
+                    ).mockResolvedValueOnce({ data: '', error: null });
+                }
+                if (missing === 'id-token') {
+                    vi.mocked(
+                        server.auth.signInWithCustomToken
+                    ).mockResolvedValueOnce({ data: {}, error: null });
+                }
+                if (missing === 'session-cookie') {
+                    vi.mocked(
+                        server.adminAuth.createSessionCookie
+                    ).mockResolvedValueOnce({ data: '', error: null });
+                }
+
+                const { error, data } = await server.refreshSession();
+
+                expect(error).toBeInstanceOf(FirebaseEdgeError);
+                expect(data).toBeNull();
+                expect(mockSaveSession).not.toHaveBeenCalled();
+            }
+        );
+
+        it('waits for persistence and exposes updated claims on the next request', async () => {
+            let cookie = 'old-session';
+            let finishWrite!: () => void;
+            const writeCompleted = new Promise<void>((resolve) => {
+                finishWrite = resolve;
+            });
+            mockGetSession.mockImplementation(() => cookie);
+            vi.mocked(server.adminAuth.verifySessionCookie).mockImplementation(
+                async (value) => ({
+                    data: {
+                        sub: 'user',
+                        role: value === 'updated-session' ? 'new' : 'old'
+                    } as never,
+                    error: null
+                })
+            );
+            mockSaveSession.mockImplementation(async (_name, value) => {
+                await writeCompleted;
+                cookie = value;
+            });
+            let settled = false;
+            const refresh = server.refreshSession().then((result) => {
+                settled = true;
+                return result;
+            });
+            await vi.waitFor(() => {
+                expect(mockSaveSession).toHaveBeenCalled();
+            });
+
+            expect(settled).toBe(false);
+            expect(cookie).toBe('old-session');
+            finishWrite();
+            const { error } = await refresh;
+            const { data: user } = await server.getUser();
+
+            expect(error).toBeNull();
+            expect(user?.role).toBe('new');
+        });
+
+        it('returns the cookie adapter write error', async () => {
+            const failure = new Error('write failed');
+            mockSaveSession.mockRejectedValueOnce(failure);
+
+            const { error, data } = await server.refreshSession();
+
+            expect(error).toBe(failure);
+            expect(data).toBeNull();
+        });
+    });
+
     describe('signOut', () => {
         it('clears session cookie with proper options', async () => {
             await server.signOut();

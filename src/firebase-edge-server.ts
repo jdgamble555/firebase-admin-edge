@@ -24,7 +24,11 @@ import type {
     FirebaseIdTokenPayload,
     FirebaseIdpSignInResponse
 } from './auth/firebase-types.js';
-import { FirebaseEdgeError, ensureError } from './auth/errors.js';
+import {
+    FirebaseEdgeError,
+    FirebaseAdminAuthErrorInfo,
+    ensureError
+} from './auth/errors.js';
 import { FirebaseEdgeServerErrorInfo } from './firebase-edge-errors.js';
 import type { CacheConfig } from './auth/cache-types.js';
 import {
@@ -1220,10 +1224,12 @@ export function createFirebaseEdgeServer({
      * Generates fresh Firebase client tokens for the authenticated user.
      * Creates a custom token and exchanges it for a Firebase ID token and refresh token.
      *
+     * @param checkRevoked Whether to check session revocation before issuing tokens
      * @returns Promise resolving to object with Firebase tokens (idToken, refreshToken, expiresIn) and error if any
      */
-    async function getToken() {
-        const { data: verifiedToken, error: verifyError } = await getUser();
+    async function getToken(checkRevoked: boolean = false) {
+        const { data: verifiedToken, error: verifyError } =
+            await getUser(checkRevoked);
 
         if (verifyError) {
             return {
@@ -1422,6 +1428,50 @@ export function createFirebaseEdgeServer({
         };
     }
 
+    /** Replace a valid session with a new cookie containing the latest user claims. */
+    async function refreshSession(
+        expiresInMs: number = COOKIE_LIFETIME_SECONDS * 1000
+    ) {
+        if (
+            !Number.isFinite(expiresInMs) ||
+            expiresInMs < 300000 ||
+            expiresInMs > 1209600000
+        ) {
+            return {
+                data: null,
+                error: new FirebaseEdgeError(
+                    FirebaseAdminAuthErrorInfo.ADMIN_SESSION_COOKIE_DURATION_INVALID
+                )
+            };
+        }
+
+        try {
+            const { error: tokenError, data: tokens } = await getToken(true);
+
+            if (tokenError || !tokens) {
+                return { data: null, error: tokenError };
+            }
+
+            const { error: sessionError, data: sessionCookie } =
+                await createSignInSession(tokens, expiresInMs);
+
+            if (sessionError) {
+                return { data: null, error: sessionError };
+            }
+
+            const expiresAt = Date.now() + expiresInMs;
+            await saveSession(
+                _cookieName,
+                sessionCookie,
+                sessionCookieOptions(expiresAt)
+            );
+
+            return { data: { refreshed: true as const }, error: null };
+        } catch (cause) {
+            return { data: null, error: ensureError(cause) };
+        }
+    }
+
     return {
         auth,
         adminAuth,
@@ -1461,6 +1511,7 @@ export function createFirebaseEdgeServer({
         getGitHubLinkURL,
         signInWithCallback,
         getToken,
+        refreshSession,
         linkProvider,
         unlinkProvider
     };

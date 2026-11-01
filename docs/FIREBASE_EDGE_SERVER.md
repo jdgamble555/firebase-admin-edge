@@ -301,6 +301,44 @@ Token generation is unavailable during impersonation. It returns
 `edge/impersonation-not-allowed` rather than issuing renewable client credentials
 for the target user.
 
+Pass `true` to `getToken(true)` to check session revocation and disabled users
+before issuing tokens.
+
+### Refresh session claims
+
+Call `refreshSession(expiresInMs?)` after changing the current user's custom claims
+to replace their session cookie. It verifies the existing session with revocation
+checking, signs in with a new custom token, and creates a cookie from the fresh ID
+token. Existing claims are not copied into the custom token, so updated and removed
+claims come from Firebase's current user record. Firebase describes this behavior
+in its [custom claims guide](https://firebase.google.com/docs/auth/admin/custom-claims).
+
+```ts
+// After an authorized update to the current user's claims:
+const { error, data } = await firebaseServer.refreshSession();
+
+if (error) {
+    throw error;
+}
+
+// data is { refreshed: true }, or null when no session exists.
+// Subsequent requests read the updated claims through getUser().
+```
+
+The duration defaults to five days; pass milliseconds between five minutes and
+fourteen days, for example `firebaseServer.refreshSession(24 * 60 * 60 * 1000)`.
+Browser persistence is capped by both that duration and the configured cookie
+`maxAge`. Await the call in a request handler that can write response cookies.
+It preserves pending OAuth cookies and only replaces the active session cookie
+after token exchange and cookie creation succeed.
+
+Expired, revoked, and disabled-user sessions cannot be renewed. Invalid sessions
+are cleared. Impersonation returns `edge/impersonation-not-allowed`. This renews
+only the current browser session; previously issued cookies and other devices
+keep their original claims. The custom-token sign-in also resets `auth_time` and
+uses the custom sign-in provider, so this is not proof of a fresh password or
+provider authentication.
+
 ### Sign out
 
 ```ts
@@ -587,7 +625,8 @@ methods return results containing `data` and/or `error`; check `error` first.
 | `getUser(checkRevoked?)`                                   | Verifies the current session and returns decoded claims, or `data: null` without a session. Invalid sessions are cleared.                             |
 | `impersonateUser(uid, expiresInMs?)`                       | Starts an authorized user impersonation, preserves the original session, and returns `{ uid, impersonation }`. The caller must enforce access policy. |
 | `stopImpersonating()`                                      | Verifies and restores the preserved original session; returns its decoded claims.                                                                     |
-| `getToken()`                                               | Creates and exchanges a custom token for the current user, returning Firebase login tokens; `data: null` without a session.                           |
+| `getToken(checkRevoked?)`                                  | Creates and exchanges a custom token for the current user, returning Firebase login tokens; `data: null` without a session.                           |
+| `refreshSession(expiresInMs?)`                             | Renews the current session with updated claims after checking revocation. Returns `{ refreshed: true }`, or `data: null` without a session.           |
 | `linkProvider(credential, providerId)`                     | Links a credential to the current user; does not replace the session cookie. Returns `data: null, error: null` without a session.                     |
 | `unlinkProvider(providerId, expiresInMs?)`                 | Unlinks a provider and replaces the session cookie. Returns `data: null, error: null` without a session.                                              |
 | `signOut()`                                                | Awaits clearing the active session, preserved actor session, and pending OAuth flow; does not revoke Firebase client tokens.                          |

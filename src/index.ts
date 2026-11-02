@@ -1,4 +1,5 @@
 export * from './firebase-edge-server.js';
+export * from './profiles.js';
 export * from './app-check/app-check.js';
 export * from './storage/storage.js';
 export * from './remote-config/remote-config.js';

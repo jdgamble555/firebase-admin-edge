@@ -155,3 +155,81 @@ it('requires a bucket and signing credentials', async () => {
         )
     ).rejects.toThrow();
 });
+
+it.each([undefined, 1024])(
+    'cryptographically binds the upload size limit %s',
+    async (maxBytes) => {
+        const signed = await signStorageUrl(account, 'bucket', 'photo', {
+            action: 'write',
+            contentType: 'image/png',
+            maxBytes
+        });
+        const url = new URL(signed);
+        const signature = url.searchParams.get('X-Goog-Signature')!;
+        url.searchParams.delete('X-Goog-Signature');
+        const headers =
+            maxBytes === undefined
+                ? 'content-type;host'
+                : 'content-type;host;x-goog-content-length-range';
+        expect(url.searchParams.get('X-Goog-SignedHeaders')).toBe(headers);
+        const canonicalRequest = [
+            'PUT',
+            '/bucket/photo',
+            url.search.slice(1),
+            'content-type:image/png\nhost:storage.googleapis.com\n' +
+                (maxBytes === undefined
+                    ? ''
+                    : `x-goog-content-length-range:0,${maxBytes}\n`),
+            headers,
+            'UNSIGNED-PAYLOAD'
+        ].join('\n');
+        const hash = createHash('sha256')
+            .update(canonicalRequest)
+            .digest('hex');
+        const message = `GOOG4-RSA-SHA256\n20260927T123456Z\n20260927/auto/storage/goog4_request\n${hash}`;
+        expect(
+            verify(
+                'RSA-SHA256',
+                Buffer.from(message),
+                publicKey,
+                Buffer.from(signature, 'hex')
+            )
+        ).toBe(true);
+        if (maxBytes !== undefined) {
+            const changedRequest = canonicalRequest.replace('0,1024', '0,2048');
+            const changedHash = createHash('sha256')
+                .update(changedRequest)
+                .digest('hex');
+            const changedMessage = message.replace(hash, changedHash);
+            expect(
+                verify(
+                    'RSA-SHA256',
+                    Buffer.from(changedMessage),
+                    publicKey,
+                    Buffer.from(signature, 'hex')
+                )
+            ).toBe(false);
+        }
+    }
+);
+
+it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, null, '1024'])(
+    'rejects invalid signed upload byte limit %s',
+    async (maxBytes) => {
+        await expect(
+            signStorageUrl(account, 'bucket', 'photo', {
+                action: 'write',
+                maxBytes: maxBytes as number
+            })
+        ).rejects.toMatchObject({ code: 'storage/invalid-argument' });
+    }
+);
+
+it('rejects byte limits on read URLs', async () => {
+    await expect(
+        signStorageUrl(account, 'bucket', 'photo', {
+            action: 'read',
+            maxBytes: 1024
+        })
+    ).rejects.toMatchObject({ code: 'storage/invalid-argument' });
+});

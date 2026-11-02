@@ -116,3 +116,7 @@ it('exports all six classes and returns their instances from public read APIs', 
     expect(empty).toBeInstanceOf(QuerySnapshot);
     expect(empty.empty).toBe(true);
 });
+
+it('exports Profiles', () => {
+    expect(typeof api.Profiles).toBe('function');
+});

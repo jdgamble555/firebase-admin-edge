@@ -23,7 +23,17 @@ export async function signStorageUrl(
             message: 'Signed URL action must be read or write.'
         });
     }
-    const { action, expiresInSeconds = 900, contentType } = options;
+    const { action, expiresInSeconds = 900, contentType, maxBytes } = options;
+    if (
+        maxBytes !== undefined &&
+        (action !== 'write' || !Number.isSafeInteger(maxBytes) || maxBytes < 1)
+    ) {
+        throw new FirebaseEdgeError({
+            code: 'storage/invalid-argument',
+            message:
+                'maxBytes requires a write URL and a positive safe integer.'
+        });
+    }
     if (
         !Number.isInteger(expiresInSeconds) ||
         expiresInSeconds < 1 ||
@@ -70,12 +80,16 @@ export async function signStorageUrl(
         .replace(/\.\d{3}Z$/, 'Z');
     const scope = `${timestamp.slice(0, 8)}/auto/storage/goog4_request`;
     const signedHeaders =
-        contentType === undefined ? 'host' : 'content-type;host';
+        (contentType === undefined ? 'host' : 'content-type;host') +
+        (maxBytes === undefined ? '' : ';x-goog-content-length-range');
     const canonicalHeaders =
         (contentType === undefined
             ? ''
             : `content-type:${contentType.trim().replace(/\s+/g, ' ')}\n`) +
-        'host:storage.googleapis.com\n';
+        'host:storage.googleapis.com\n' +
+        (maxBytes === undefined
+            ? ''
+            : `x-goog-content-length-range:0,${maxBytes}\n`);
     const path = `/${encodeStorageComponent(bucket)}/${name.split('/').map(encodeStorageComponent).join('/')}`;
     const query = Object.entries({
         'X-Goog-Algorithm': 'GOOG4-RSA-SHA256',

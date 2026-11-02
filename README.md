@@ -98,6 +98,8 @@ local setup and the required Firebase configuration.
 
 ## Class Guides
 
+See [Profiles](docs/PROFILES.md) for unique usernames and configurable Firestore storage.
+
 Start with the guide for the feature you're adding:
 
 For fluent Firebase Auth user queries, see [Identity](docs/IDENTITY.md).

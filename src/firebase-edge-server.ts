@@ -13,6 +13,7 @@ import type { CookieConfig, CookieOptions } from './auth/cookie-types.js';
 import { FirebaseAdminAuth } from './auth/firebase-admin-auth.js';
 import { Identity } from './auth/identity.js';
 import { Firestore } from './db/firestore.js';
+import { Profiles } from './profiles.js';
 import { AppCheck } from './app-check/app-check.js';
 import { Storage } from './storage/storage.js';
 import { RemoteConfig } from './remote-config/remote-config.js';
@@ -115,7 +116,11 @@ export function createFirebaseEdgeServer({
     redirectUri,
     autoLinkProviders,
     fetch,
-    authEmulatorHost
+    authEmulatorHost,
+    usernamesCollection,
+    usersCollection,
+    profilePhotosPath,
+    profilePhotoMaxBytes
 }: {
     serviceAccount: ServiceAccount;
     firebaseConfig: FirebaseConfig;
@@ -129,6 +134,14 @@ export function createFirebaseEdgeServer({
     autoLinkProviders?: boolean;
     fetch?: typeof globalThis.fetch;
     authEmulatorHost?: string | null;
+    /** Firestore collection or subcollection path for username reservations. */
+    usernamesCollection?: string;
+    /** Firestore collection or subcollection path for user profile documents. */
+    usersCollection?: string;
+    /** Storage object prefix for photo uploads; defaults to 'profile-photos'. */
+    profilePhotosPath?: string;
+    /** Maximum photo upload bytes; defaults to 8 MiB. Null disables the limit. */
+    profilePhotoMaxBytes?: number | null;
 }) {
     // Cookies
     const _cookieName = cookieName || '__session';
@@ -189,6 +202,15 @@ export function createFirebaseEdgeServer({
         cache: cacheImpl,
         cacheName
     });
+    const profiles = new Profiles(
+        firestore,
+        adminAuth,
+        usernamesCollection,
+        usersCollection,
+        storage,
+        profilePhotosPath,
+        profilePhotoMaxBytes
+    );
 
     /** Describe the confirmation form to render, without exchanging or consuming any code. */
     function getCallbackAction(url: URL) {
@@ -1476,6 +1498,7 @@ export function createFirebaseEdgeServer({
         auth,
         adminAuth,
         firestore,
+        profiles,
         identity,
         appCheck,
         remoteConfig,

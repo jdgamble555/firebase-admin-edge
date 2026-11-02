@@ -187,6 +187,8 @@ export interface StorageSignedUrlOptions {
     expiresInSeconds?: number;
     /** For write URLs, the caller must send this exact Content-Type. */
     contentType?: string;
+    /** Write-only byte limit. Send x-goog-content-length-range: 0,<maxBytes>. */
+    maxBytes?: number;
 }
 
 export interface StorageListOptions {

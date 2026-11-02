@@ -1132,3 +1132,33 @@ if (resumeError) {
     throw resumeError;
 }
 ```
+
+To enforce a maximum size on a signed PUT upload, pass `maxBytes` and send the
+matching signed size-range header:
+
+```ts
+const maxBytes = 8 * 1024 * 1024;
+const { error, data: uploadUrl } = await storage.getSignedUrl(
+    'photos/new.jpg',
+    {
+        action: 'write',
+        contentType: 'image/jpeg',
+        maxBytes
+    }
+);
+if (error) throw error;
+
+const response = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: {
+        'Content-Type': 'image/jpeg',
+        'x-goog-content-length-range': `0,${maxBytes}`
+    },
+    body: photoFile
+});
+if (!response.ok) throw new Error('Upload failed.');
+```
+
+`maxBytes` must be a positive safe integer and is only supported for write URLs.
+Omit it to sign without a size restriction. Browser uploads require the size-range
+header in the bucket CORS configuration.

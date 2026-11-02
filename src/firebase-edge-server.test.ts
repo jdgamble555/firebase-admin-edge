@@ -2574,3 +2574,23 @@ describe('createFirebaseEdgeServer', () => {
         });
     });
 });
+
+it('exposes profiles using the shared Firestore and configured subcollection', () => {
+    const server = createFirebaseEdgeServer({
+        serviceAccount: mockServiceAccount,
+        firebaseConfig: mockFirebaseConfig,
+        cookies: { getSession: vi.fn(), saveSession: vi.fn() },
+        redirectUri: 'http://localhost',
+        usernamesCollection: 'apps/main/names',
+        usersCollection: 'apps/main/users',
+        profilePhotosPath: 'apps/main/photos',
+        profilePhotoMaxBytes: null
+    });
+    expect(server.profiles.firestore).toBe(server.firestore);
+    expect(server.profiles.adminAuth).toBe(server.adminAuth);
+    expect(server.profiles.storage).toBe(server.storage);
+    expect(server.profiles.usernamesCollection).toBe('apps/main/names');
+    expect(server.profiles.usersCollection).toBe('apps/main/users');
+    expect(server.profiles.profilePhotosPath).toBe('apps/main/photos');
+    expect(server.profiles.profilePhotoMaxBytes).toBeNull();
+});

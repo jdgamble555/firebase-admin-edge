@@ -1093,3 +1093,23 @@ with `newPassword` and optional `confirmPassword`. If confirmation is supplied f
 a reset, it must match; otherwise the core returns `auth/password-mismatch` before
 calling Firebase. Password policy remains enforced by Firebase. Only call completion
 for an email action after a user POST, so link previews cannot consume it.
+
+## Username profiles
+
+Use `usernamesCollection` to choose a Firestore collection or subcollection path
+(default: `usernames`). Set `usersCollection` to the collection or subcollection
+for user documents (default: `users`). Username updates also merge the `username`
+field into that user's document in the same transaction.
+The server exposes `profiles.checkUsername(username)` and
+`profiles.updateUsername(uid, username)`. See [Profiles](PROFILES.md) for configuration,
+authenticated usage examples, and reservation behavior.
+
+Photo uploads also accept the optional `profilePhotosPath` config field, defaulting
+to `profile-photos`. `profiles.createPhotoUploadUrl` signs uploads under
+`<profilePhotosPath>/<encoded UID>/<unique ID>` in the configured Storage bucket.
+
+`profilePhotoMaxBytes` optionally controls the photo upload byte limit. It defaults
+to `8 * 1024 * 1024` (8 MiB); set a positive safe integer for another limit or
+`null` to disable the application limit. Send the `headers` returned by
+`profiles.createPhotoUploadUrl` with the upload so Storage enforces the signed
+size range. See [Profiles](PROFILES.md#upload-size-limit).

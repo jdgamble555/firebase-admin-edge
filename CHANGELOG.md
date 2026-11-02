@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 3.4.0
+
+### Minor Changes
+
+- f0f40dc: Profile Class
+
 ## 3.3.0
 
 ### Minor Changes

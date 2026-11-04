@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import {
+    describe,
+    it,
+    expect,
+    expectTypeOf,
+    beforeEach,
+    afterEach,
+    vi
+} from 'vitest';
 import { FirebaseAuth } from './firebase-auth.js';
 import * as endpoints from './firebase-auth-endpoints.js';
 import { FirebaseEdgeError } from './errors.js';
@@ -174,36 +182,47 @@ describe('FirebaseAuth', () => {
     });
 
     describe('signInWithProvider', () => {
-        it('should return data on successful sign in', async () => {
-            const mockData = {
-                idToken: 'token123',
-                refreshToken: 'refresh123',
-                expiresIn: '3600',
-                localId: 'user123',
-                providerId: 'google.com',
-                federatedId: 'fed123'
-            };
-            vi.mocked(endpoints.signInWithIdp).mockResolvedValue({
-                data: mockData,
-                error: null
-            });
+        it.each([true, false, undefined])(
+            'preserves Google sign-in data with isNewUser=%s',
+            async (isNewUser) => {
+                const mockData = {
+                    idToken: 'token123',
+                    refreshToken: 'refresh123',
+                    expiresIn: '3600',
+                    localId: 'user123',
+                    providerId: 'google.com',
+                    federatedId: 'fed123',
+                    ...(isNewUser === undefined ? {} : { isNewUser })
+                };
+                vi.mocked(endpoints.signInWithIdp).mockResolvedValue({
+                    data: mockData,
+                    error: null
+                });
 
-            const result = await firebaseAuth.signInWithProvider(
-                'idToken',
-                'google.com'
-            );
+                const { data, error } = await firebaseAuth.signInWithProvider(
+                    'idToken',
+                    'google.com'
+                );
 
-            expect(result.data).toEqual(mockData);
-            expect(result.error).toBeNull();
-            expect(endpoints.signInWithIdp).toHaveBeenCalledWith(
-                'idToken',
-                'http://localhost',
-                'google.com',
-                'test-api-key',
-                undefined,
-                mockFetch
-            );
-        });
+                expect(data).toEqual(mockData);
+                expect(error).toBeNull();
+                expect(data?.isNewUser).toBe(isNewUser);
+                expectTypeOf(data?.isNewUser).toEqualTypeOf<
+                    boolean | undefined
+                >();
+                if (isNewUser === undefined) {
+                    expect(data).not.toHaveProperty('isNewUser');
+                }
+                expect(endpoints.signInWithIdp).toHaveBeenCalledWith(
+                    'idToken',
+                    'http://localhost',
+                    'google.com',
+                    'test-api-key',
+                    undefined,
+                    mockFetch
+                );
+            }
+        );
 
         it('should return error on failed sign in', async () => {
             const mockError = mapFirebaseError({

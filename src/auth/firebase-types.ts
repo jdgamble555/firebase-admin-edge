@@ -34,6 +34,8 @@ export type FirebaseIdpSignInResponse = {
     refreshToken?: string;
     expiresIn?: string;
     localId?: string;
+    /** Whether this sign-in created a new Firebase account. */
+    isNewUser?: boolean;
 
     providerId?: string;
     federatedId?: string;

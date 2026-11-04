@@ -82,6 +82,27 @@ if (error) {
 ```
 
 These methods do not save cookies for you.
+
+Provider sign-in responses include `isNewUser` when Firebase supplies it: `true`
+means the sign-in created a Firebase account, and `false` means the account
+already existed. The field is optional; an absent value is not the same as
+`false`.
+
+```ts
+const { data: login, error } = await auth.signInWithProvider(
+    googleIdToken,
+    'google.com'
+);
+
+if (error) {
+    throw error;
+}
+
+if (login?.isNewUser === true) {
+    console.log('Welcome to your new account');
+}
+```
+
 The full constructor is `new FirebaseAuth(config, callbackUrl, options?)`.
 The exported `FirebaseAuthOptions` type includes `tenantId`, `fetch`, and
 `emulatorHost`. Omitted settings use their defaults.

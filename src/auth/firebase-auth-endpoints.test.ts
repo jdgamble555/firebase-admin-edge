@@ -1577,41 +1577,49 @@ describe('firebase-auth-endpoints', () => {
     });
 
     describe('signInWithIdp', () => {
-        it('should sign in with IDP successfully', async () => {
-            const mockResponse = {
-                idToken: 'firebase-token',
-                refreshToken: 'refresh'
-            };
+        it.each([true, false, undefined])(
+            'preserves Google REST response with isNewUser=%s',
+            async (isNewUser) => {
+                const mockResponse = {
+                    idToken: 'firebase-token',
+                    refreshToken: 'refresh',
+                    ...(isNewUser === undefined ? {} : { isNewUser })
+                };
 
-            vi.mocked(restFetch.restFetch).mockResolvedValue({
-                data: mockResponse,
-                error: null
-            });
+                vi.mocked(restFetch.restFetch).mockResolvedValue({
+                    data: mockResponse,
+                    error: null
+                });
 
-            const result = await signInWithIdp(
-                'provider-token',
-                'https://request.com',
-                'google.com',
-                API_KEY,
-                undefined,
-                mockFetch
-            );
+                const { data, error } = await signInWithIdp(
+                    'provider-token',
+                    'https://request.com',
+                    'google.com',
+                    API_KEY,
+                    undefined,
+                    mockFetch
+                );
 
-            expect(result.data).toEqual(mockResponse);
-            expect(result.error).toBeNull();
-            expect(restFetch.restFetch).toHaveBeenCalledWith(
-                'https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp',
-                expect.objectContaining({
-                    body: {
-                        postBody:
-                            'id_token=provider-token&providerId=google.com',
-                        requestUri: 'https://request.com',
-                        returnSecureToken: true,
-                        returnIdpCredential: true
-                    }
-                })
-            );
-        });
+                expect(data).toEqual(mockResponse);
+                expect(error).toBeNull();
+                expect(data?.isNewUser).toBe(isNewUser);
+                if (isNewUser === undefined) {
+                    expect(data).not.toHaveProperty('isNewUser');
+                }
+                expect(restFetch.restFetch).toHaveBeenCalledWith(
+                    'https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp',
+                    expect.objectContaining({
+                        body: {
+                            postBody:
+                                'id_token=provider-token&providerId=google.com',
+                            requestUri: 'https://request.com',
+                            returnSecureToken: true,
+                            returnIdpCredential: true
+                        }
+                    })
+                );
+            }
+        );
 
         it('should sign in with IDP and tenant ID', async () => {
             const mockResponse = {

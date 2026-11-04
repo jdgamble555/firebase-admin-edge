@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 3.4.1
+
+### Patch Changes
+
+- 2fcef9c: fix types
+
 ## 3.4.0
 
 ### Minor Changes

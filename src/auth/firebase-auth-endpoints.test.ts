@@ -1479,6 +1479,86 @@ describe('firebase-auth-endpoints', () => {
     });
 
     describe('createAuthUri', () => {
+        it.each([
+            ['google', 'openid email profile'],
+            ['facebook', 'public_profile email'],
+            ['github', 'user:email'],
+            ['apple', 'email name'],
+            ['microsoft', 'openid email profile'],
+            ['yahoo', 'openid email profile'],
+            ['twitter', undefined],
+            ['oidc.company', undefined],
+            ['saml.company', undefined],
+            ['playgames', undefined]
+        ])('uses identity scopes for %s', async (provider, expectedScopes) => {
+            vi.mocked(restFetch.restFetch).mockResolvedValue({
+                data: { authUri: 'https://provider/authorize' },
+                error: null
+            });
+
+            for (const addScopes of [
+                undefined,
+                [],
+                expectedScopes?.split(' ')
+            ]) {
+                await createAuthUri(
+                    'https://app/auth/callback',
+                    API_KEY,
+                    undefined,
+                    mockFetch,
+                    provider!,
+                    { addScopes }
+                );
+
+                const request = vi
+                    .mocked(restFetch.restFetch)
+                    .mock.calls.at(-1)?.[1];
+                if (expectedScopes === undefined) {
+                    expect(request?.body).not.toHaveProperty('oauthScope');
+                    continue;
+                }
+                expect(request?.body).toHaveProperty(
+                    'oauthScope',
+                    expectedScopes
+                );
+            }
+        });
+
+        it.each(['google', 'google.com'])(
+            'merges and deduplicates default scopes for %s without changing options',
+            async (provider) => {
+                vi.mocked(restFetch.restFetch).mockResolvedValue({
+                    data: { authUri: 'https://provider/authorize' },
+                    error: null
+                });
+                const addScopes = ['profile', 'email', 'calendar', 'calendar'];
+
+                await createAuthUri(
+                    'https://app/auth/callback',
+                    API_KEY,
+                    undefined,
+                    mockFetch,
+                    provider,
+                    { addScopes }
+                );
+
+                expect(restFetch.restFetch).toHaveBeenCalledWith(
+                    expect.any(String),
+                    expect.objectContaining({
+                        body: expect.objectContaining({
+                            oauthScope: 'openid email profile calendar'
+                        })
+                    })
+                );
+                expect(addScopes).toEqual([
+                    'profile',
+                    'email',
+                    'calendar',
+                    'calendar'
+                ]);
+            }
+        );
+
         it.each(['google', 'google.com', 'github', 'apple', 'oidc.company'])(
             'uses server callback code flow only for Google: %s',
             async (provider) => {
@@ -1499,7 +1579,8 @@ describe('firebase-auth-endpoints', () => {
                 if (provider === 'google' || provider === 'google.com') {
                     expect(options?.body).toMatchObject({
                         providerId: 'google.com',
-                        authFlowType: 'CODE_FLOW'
+                        authFlowType: 'CODE_FLOW',
+                        oauthScope: 'openid email profile'
                     });
                     return;
                 }
@@ -1532,7 +1613,8 @@ describe('firebase-auth-endpoints', () => {
                     body: {
                         continueUri: 'https://redirect.com',
                         providerId: 'google.com',
-                        authFlowType: 'CODE_FLOW'
+                        authFlowType: 'CODE_FLOW',
+                        oauthScope: 'openid email profile'
                     },
                     params: { key: API_KEY },
                     global: { fetch: mockFetch }
@@ -1567,6 +1649,7 @@ describe('firebase-auth-endpoints', () => {
                         continueUri: 'https://redirect.com',
                         providerId: 'google.com',
                         authFlowType: 'CODE_FLOW',
+                        oauthScope: 'openid email profile',
                         tenantId: tenantId
                     },
                     params: { key: API_KEY },
@@ -2823,7 +2906,16 @@ describe('provider authorization endpoints', () => {
                         continueUri: 'https://app/callback',
                         providerId,
                         tenantId: 'tenant',
-                        oauthScope: 'email profile',
+                        oauthScope:
+                            providerId === 'facebook.com'
+                                ? 'public_profile email profile'
+                                : providerId === 'apple.com'
+                                  ? 'email name profile'
+                                  : ['microsoft.com', 'yahoo.com'].includes(
+                                          providerId
+                                      )
+                                    ? 'openid email profile'
+                                    : 'email profile',
                         customParameter: { tenant: 'organization' }
                     }
                 })

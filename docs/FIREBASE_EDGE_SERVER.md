@@ -673,8 +673,31 @@ All managed URL methods accept `options?: ProviderAuthorizationOptions`:
 
 `next` is required and must be a local absolute path, such as
 `'/dashboard?tab=profile'`. Managed flows reject external URLs, protocol-relative
-URLs, and unsafe paths. Firebase supplies the base authorization scopes;
-`addScopes` requests additional scopes. Custom parameters are subject to Firebase's
+URLs, and unsafe paths. Login and linking merge `addScopes` with these defaults
+and deduplicate the result, including when `addScopes` is empty:
+
+| Provider                 | Default scopes                                             |
+| ------------------------ | ---------------------------------------------------------- |
+| Google, Microsoft, Yahoo | `openid email profile`                                     |
+| Facebook                 | `public_profile email`                                     |
+| GitHub                   | `user:email` (public profile access needs no extra scope)  |
+| Apple                    | `email name`                                               |
+| Twitter                  | None; Firebase uses OAuth 1.0 token and secret permissions |
+| Custom OIDC / SAML       | Firebase/provider configuration; no extra scopes added     |
+
+Play Games uses native authorization credentials rather than a browser login URL.
+Custom OIDC scopes must match the configured issuer; SAML does not use OAuth scopes.
+Requested email, name, and photo fields may still be unavailable or withheld.
+
+These defaults follow the provider documentation for
+[Microsoft](https://learn.microsoft.com/en-us/entra/identity-platform/scopes-oidc),
+[Yahoo](https://developer.yahoo.com/sign-in-with-yahoo/),
+[GitHub](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps),
+[Apple](https://firebase.google.com/docs/auth/web/apple),
+[Facebook](https://developers.facebook.com/docs/facebook-login/permissions/), and
+[Twitter](https://firebase.google.com/docs/auth/web/twitter-login).
+
+Custom parameters are subject to Firebase's
 reserved-parameter rules. To request Google's language, use `customParameters.hl`.
 
 ```ts

@@ -619,6 +619,20 @@ export async function createAuthUri(
 ) {
     const url = createIdentityURL('createAuthUri');
     const resolvedProviderId = resolveProviderId(providerId);
+    const defaultScopes: Record<string, readonly string[]> = {
+        'google.com': ['openid', 'email', 'profile'],
+        'facebook.com': ['public_profile', 'email'],
+        'github.com': ['user:email'],
+        'apple.com': ['email', 'name'],
+        'microsoft.com': ['openid', 'email', 'profile'],
+        'yahoo.com': ['openid', 'email', 'profile']
+    };
+    const scopes = [
+        ...new Set([
+            ...(defaultScopes[resolvedProviderId] ?? []),
+            ...(options.addScopes ?? [])
+        ])
+    ];
 
     const body = {
         continueUri: redirect_uri,
@@ -626,8 +640,8 @@ export async function createAuthUri(
         ...(resolvedProviderId === 'google.com' && {
             authFlowType: 'CODE_FLOW'
         }),
-        ...(options.addScopes?.length && {
-            oauthScope: options.addScopes.join(' ')
+        ...(scopes?.length && {
+            oauthScope: scopes.join(' ')
         }),
         ...(options.customParameters && {
             customParameter: options.customParameters

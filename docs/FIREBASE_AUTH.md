@@ -152,6 +152,11 @@ const game = await auth.signInWithProvider(
 `data.authUri` and `data.sessionId`. Persist the session ID in protected storage
 bound to the initiating browser before redirecting. Provider client credentials
 come from Firebase Console. Options accept `addScopes` and `customParameters`.
+Authorization merges and deduplicates `addScopes` with the
+[provider identity scopes](FIREBASE_EDGE_SERVER.md#authorization-options).
+Google, Microsoft, and Yahoo request `openid email profile`; Facebook requests
+`public_profile email`; GitHub requests `user:email`; Apple requests `email name`.
+Twitter and custom OIDC/SAML providers receive no additional default scopes.
 
 ```ts
 const start = await auth.createProviderAuthorization('microsoft.com', {

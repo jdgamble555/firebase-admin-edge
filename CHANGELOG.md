@@ -1,5 +1,11 @@
 # firebase-admin-edge
 
+## 3.4.2
+
+### Patch Changes
+
+- 2e2b734: fix profile scope
+
 ## 3.4.1
 
 ### Patch Changes
